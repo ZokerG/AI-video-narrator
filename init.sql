@@ -6,7 +6,6 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash VARCHAR(255) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     credits INTEGER DEFAULT 100,
-    google_drive_folder_id VARCHAR(255),
     is_active BOOLEAN DEFAULT true
 );
 
@@ -15,8 +14,8 @@ CREATE TABLE IF NOT EXISTS videos (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     original_filename VARCHAR(500),
     output_path VARCHAR(1000),
-    drive_file_id VARCHAR(255),
-    drive_link TEXT,
+    storage_object_name VARCHAR(500),
+    storage_url TEXT,
     file_size BIGINT,
     thumbnail_url TEXT,
     status VARCHAR(50) DEFAULT 'processing',

@@ -1,6 +1,6 @@
 "use client";
 
-import { Home, Plus, FolderOpen, Settings, Mic, CreditCard, HelpCircle } from "lucide-react";
+import { Home, Plus, FolderOpen, Settings, Mic, CreditCard, HelpCircle, Video } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -8,15 +8,18 @@ import { cn } from "@/lib/utils";
 const navigation = [
     { name: "Dashboard", href: "/", icon: Home },
     { name: "New Video", href: "/new", icon: Plus },
-    { name: "My Videos", href: "/videos", icon: FolderOpen },
+    { name: "My Videos", href: "/videos", icon: Video },
     { name: "Voices", href: "/voices", icon: Mic },
     { name: "Settings", href: "/settings", icon: Settings },
     { name: "Billing", href: "/billing", icon: CreditCard },
     { name: "Help", href: "/help", icon: HelpCircle },
 ];
 
+import { useAuth } from "@/contexts/AuthContext";
+
 export function Sidebar() {
     const pathname = usePathname();
+    const { user } = useAuth();
 
     return (
         <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
@@ -46,16 +49,30 @@ export function Sidebar() {
 
             {/* Usage Meter - Sticky at bottom */}
             <div className="p-4 border-t border-gray-200 bg-white">
-                <div className="space-y-2">
+                <div className="space-y-3">
                     <div className="flex items-center justify-between text-xs">
-                        <span className="text-gray-600 font-medium">Usage</span>
-                        <span className="text-gray-900 font-semibold">45% of plan</span>
+                        <span className="text-gray-600 font-medium uppercase tracking-wider">
+                            {user?.plan || "Free"} Plan
+                        </span>
+                        <span className="text-primary-700 font-bold bg-primary-50 px-2 py-0.5 rounded-md">
+                            {user?.credits || 0} Credits
+                        </span>
                     </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2.5">
+
+                    {/* Visual Meter (assuming 100 is base/max for now) */}
+                    <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
                         <div
-                            className="bg-primary-600 h-2.5 rounded-full transition-all"
-                            style={{ width: "45%" }}
+                            className="bg-gradient-to-r from-primary-500 to-primary-600 h-full rounded-full transition-all duration-500 ease-out"
+                            style={{ width: `${Math.min((user?.credits || 0), 100)}%` }}
                         ></div>
+                    </div>
+
+                    <div className="text-xs text-center text-gray-500">
+                        {user?.credits && user.credits < 20 ? (
+                            <span className="text-red-500 font-medium">Low balance!</span>
+                        ) : (
+                            <span>{(user?.credits || 0) / 20} videos remaining</span>
+                        )}
                     </div>
                 </div>
             </div>

@@ -87,12 +87,17 @@ async def get_current_user(
         
         # Decode token
         payload = decode_access_token(token)
-        user_id: int = payload.get("sub")
+        
+        # Get user ID (convert from string to int)
+        user_id_str = payload.get("sub")
+        user_id = int(user_id_str) if user_id_str else None
         
         if user_id is None:
             raise credentials_exception
             
     except JWTError:
+        raise credentials_exception
+    except ValueError:
         raise credentials_exception
     
     # Get user from database

@@ -17,6 +17,7 @@ from core.auth import (
     get_current_user
 )
 from core.storage import save_video_to_drive, get_user_videos, delete_video
+from elevenlabs import ElevenLabs
 
 load_dotenv()
 
@@ -29,15 +30,15 @@ app = FastAPI(title="Gemini Video Narrator API")
 # Configure CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"], 
+    allow_origins=["http://localhost:3000"],  # Frontend URL
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*", "Authorization"],  # Explicitly allow Authorization header
 )
 
 # Mount static directories
 app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
-# app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads") # Optional if we want to view original
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # Pydantic schemas
 class RegisterRequest(BaseModel):
@@ -55,8 +56,9 @@ class TokenResponse(BaseModel):
 
 class UserResponse(BaseModel):
     id: int
-    email: str
+    email: EmailStr
     credits: int
+    plan: str
     created_at: str
 
 @app.get("/")
@@ -83,8 +85,8 @@ async def register(
     user = await create_user(request.email, password_hash, session)
     await session.commit()
     
-    # Create access token
-    access_token = create_access_token(data={"sub": user.id})
+    # Create access token (sub must be string)
+    access_token = create_access_token(data={"sub": str(user.id)})
     
     return {
         "access_token": access_token,
@@ -93,6 +95,7 @@ async def register(
             "id": user.id,
             "email": user.email,
             "credits": user.credits,
+            "plan": user.plan,
             "created_at": user.created_at.isoformat()
         }
     }
@@ -110,14 +113,14 @@ async def login(
     
     # Verify password
     if not verify_password(request.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
     
     # Check if active
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is inactive")
     
-    # Create access token
-    access_token = create_access_token(data={"sub": user.id})
+    # Create access token (sub must be string)
+    access_token = create_access_token(data={"sub": str(user.id)})
     
     return {
         "access_token": access_token,
@@ -126,6 +129,7 @@ async def login(
             "id": user.id,
             "email": user.email,
             "credits": user.credits,
+            "plan": user.plan,
             "created_at": user.created_at.isoformat()
         }
     }
@@ -139,20 +143,20 @@ async def get_current_user_info(
         "id": current_user.id,
         "email": current_user.email,
         "credits": current_user.credits,
+        "plan": getattr(current_user, "plan", "free"),
         "created_at": current_user.created_at.isoformat()
     }
 
 # ============= Video Processing Endpoints =============
 
 @app.get("/voices")
-async def list_voices():
-    """List available ElevenLabs voices"""
+async def get_voices():
+    """Get all available ElevenLabs voices"""
+    api_key = os.getenv("ELEVENLABS_API_KEY")
+    if not api_key:
+        return {"error": "ElevenLabs API key not configured"}
+    
     try:
-        from elevenlabs import ElevenLabs
-        api_key = os.environ.get("ELEVENLABS_API_KEY")
-        if not api_key:
-            return {"error": "ELEVENLABS_API_KEY not configured"}
-        
         client = ElevenLabs(api_key=api_key)
         voices = client.voices.get_all()
         
@@ -171,38 +175,112 @@ async def list_voices():
         print(f"Error fetching voices: {e}")
         return {"error": str(e)}
 
+@app.post("/voices/preview")
+async def generate_voice_preview(
+    voice_id: str = Form(...),
+    text: str = Form("Hello, this is a sample of my voice. Do you like how I sound?"),
+    current_user: User = Depends(get_current_user)
+):
+    """Generate audio preview for a voice"""
+    api_key = os.getenv("ELEVENLABS_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="ElevenLabs API key not configured")
+    
+    try:
+        import uuid
+        
+        client = ElevenLabs(api_key=api_key)
+
+        # Generate audio
+        audio_generator = client.text_to_speech.convert(
+            text=text,
+            voice_id=voice_id,
+            model_id="eleven_multilingual_v2"
+        )
+        
+        # Convert generator to bytes
+        audio_bytes = b"".join(audio_generator)
+        
+        # Save to temp file
+        os.makedirs("outputs/previews", exist_ok=True)
+        preview_filename = f"outputs/previews/preview_{uuid.uuid4().hex[:8]}.mp3"
+        
+        with open(preview_filename, "wb") as f:
+             f.write(audio_bytes)
+        
+        # Return file URL
+        return {
+            "status": "success",
+            "audio_url": f"http://localhost:8000/{preview_filename}",
+            "voice_id": voice_id
+        }
+        
+    except Exception as e:
+        print(f"Error generating preview: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+VIDEO_COST = 20
+
 @app.post("/analyze")
 async def analyze_video(
-    file: UploadFile = File(...),
-    keep_audio: bool = Form(True),  # Deprecated, use original_volume instead
+    video: UploadFile = File(...),
     style: str = Form("viral"),
     pace: str = Form("fast"),
     voice_id: str = Form(None),
+    original_volume: int = Form(10),
     stability: int = Form(50),
-    similarity_boost: int = Form(70),
+    similarity_boost: int = Form(75),
     speed: int = Form(100),
-    original_volume: int = Form(30),  # 0-100 percentage
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session)
 ):
+    """
+    Full pipeline: Upload -> Analyze -> TTS -> Mix
+    """
     start_time = time.time()
-    print(f"[{time.strftime('%X')}] 📥 New request: {file.filename} | Style: {style} | Pace: {pace}")
-    print(f"[{time.strftime('%X')}] 🎙️ Voice Config: stability={stability}%, similarity={similarity_boost}%, speed={speed/100}x")
-    print(f"[{time.strftime('%X')}] 🔊 Original Audio Volume: {original_volume}%")
-    
-    # 1. Save uploaded file
-    os.makedirs("uploads", exist_ok=True)
-    os.makedirs("outputs", exist_ok=True)
-    
-    video_filename = f"uploads/{int(time.time())}_{file.filename}"
+
+    # 0. Check Credits
+    if current_user.credits < VIDEO_COST:
+        raise HTTPException(
+            status_code=403, 
+            detail=f"Insufficient credits. {VIDEO_COST} credits required. Balance: {current_user.credits}"
+        )
+
+    # 1. Save video locally
+    video_filename = f"uploads/{int(time.time())}_{video.filename}"
     with open(video_filename, "wb") as buffer:
-        buffer.write(await file.read())
-    
+        content = await video.read()
+        buffer.write(content)
+        
     print(f"[{time.strftime('%X')}] 💾 Video saved to: {video_filename}")
+
+    # 2. Check Duration (Free Plan Limit)
+    if getattr(current_user, "plan", "free") == "free":
+        try:
+            from moviepy.editor import VideoFileClip
+            clip = VideoFileClip(video_filename)
+            duration = clip.duration
+            clip.close()
+            
+            if duration > 60:
+                os.remove(video_filename)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Free plan limit exceeded. Video is {int(duration)}s (limit: 60s)."
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"⚠️ Error checking duration: {e}")
+
+    # Deduct credits
+    current_user.credits -= VIDEO_COST
+    session.add(current_user)
+    await session.commit()
         
     try:
-        # 2. Analyze with Gemini
         from core.gemini import analyze_video_content
+        print(f"[{time.strftime('%X')}] 🚀 Processing started for user {current_user.email} (Credits: {current_user.credits})")
         print(f"[{time.strftime('%X')}] 🧠 Starting Gemini Analysis...")
         analysis = analyze_video_content(video_filename, style=style, pace=pace)
         print(f"[{time.strftime('%X')}] ✅ Analysis complete. Beats found: {len(analysis.beats)}")
@@ -268,7 +346,7 @@ async def analyze_video(
             video_path=output_filename,
             session=session,
             metadata={
-                "original_filename": file.filename,
+                "original_filename": video.filename,
                 "voice_config": {
                     "voice_id": voice_id,
                     "stability": stability,
@@ -284,14 +362,14 @@ async def analyze_video(
         )
         await session.commit()
         
-        print(f"[{time.strftime('%X')}] 💾 Video saved to Drive (ID: {video_record.id})")
+        print(f"[{time.strftime('%X')}] 💾 Video saved to MinIO (ID: {video_record.id})")
         print(f"[{time.strftime('%X')}] ⏱️ Total time: {time.time() - start_time:.2f}s")
         
         return {
             "status": "completed",
             "analysis": analysis.dict(),
             "output_video": output_filename,
-            "drive_link": video_record.drive_link,
+            "storage_url": video_record.storage_url,
             "video_id": video_record.id
         }
         
@@ -316,7 +394,7 @@ async def get_my_videos(
             {
                 "id": video.id,
                 "original_filename": video.original_filename,
-                "drive_link": video.drive_link,
+                "storage_url": video.storage_url,
                 "file_size": video.file_size,
                 "status": video.status,
                 "created_at": video.created_at.isoformat(),

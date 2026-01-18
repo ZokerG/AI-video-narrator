@@ -53,12 +53,12 @@ export function VoiceConfiguration({
                         const isSelected = config.voiceId === voice.id;
 
                         return (
-                            <button
+                            <div
                                 key={voice.id}
                                 onClick={() => updateConfig("voiceId", voice.id)}
-                                className={`relative p-6 rounded-xl border-2 transition-all text-left ${isSelected
-                                        ? "border-primary-600 bg-primary-50 shadow-lg ring-2 ring-primary-200"
-                                        : "border-gray-200 hover:border-gray-300 bg-white hover:shadow-md"
+                                className={`relative p-6 rounded-xl border-2 transition-all text-left cursor-pointer ${isSelected
+                                    ? "border-primary-600 bg-primary-50 shadow-lg ring-2 ring-primary-200"
+                                    : "border-gray-200 hover:border-gray-300 bg-white hover:shadow-md"
                                     }`}
                             >
                                 <div className="flex items-start justify-between mb-3">
@@ -87,7 +87,7 @@ export function VoiceConfiguration({
                                     <Play className="h-3.5 w-3.5" />
                                     Preview Voice
                                 </button>
-                            </button>
+                            </div>
                         );
                     })}
                 </div>

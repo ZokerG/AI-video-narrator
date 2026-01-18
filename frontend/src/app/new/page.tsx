@@ -6,9 +6,9 @@ import { VideoUploader } from "@/components/video/VideoUploader";
 import { VoiceConfiguration } from "@/components/video/VoiceConfiguration";
 import { AudioSettings } from "@/components/video/AudioSettings";
 import { ProcessingStatus } from "@/components/video/ProcessingStatus";
+import { useAuth } from "@/contexts/AuthContext";
 import { useState } from "react";
-import { ArrowLeft, Check } from "lucide-react";
-import Link from "next/link";
+import { CheckCircle, Download, FileVideo } from "lucide-react";
 import axios from "axios";
 
 type Step = "upload" | "voice" | "audio" | "processing" | "complete";
@@ -29,11 +29,24 @@ interface AudioConfig {
 interface ProcessingResult {
     status: string;
     output_video?: string;
-    analysis?: any;
+    storage_url?: string;
+    video_id?: number;
+    analysis?: {
+        beats?: Array<{
+            start_s: number;
+            end_s: number;
+            voiceover?: {
+                script?: string;
+            };
+            visual_summary?: string;
+        }>;
+    };
+    processing_time?: string;
     message?: string;
 }
 
 export default function NewVideoPage() {
+    const { token, refreshUser } = useAuth();
     const [currentStep, setCurrentStep] = useState<Step>("upload");
     const [videoFile, setVideoFile] = useState<File | null>(null);
     const [voiceConfig, setVoiceConfig] = useState<VoiceConfig>({
@@ -48,8 +61,8 @@ export default function NewVideoPage() {
         originalVolume: 30,
     });
 
-    const [isProcessing, setIsProcessing] = useState(false);
     const [processingResult, setProcessingResult] = useState<ProcessingResult | null>(null);
+    const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const handleGenerate = async () => {
@@ -60,9 +73,18 @@ export default function NewVideoPage() {
         setError(null);
 
         try {
+            // Get auth token from localStorage
+            const authToken = token || localStorage.getItem("auth_token");
+
+            if (!authToken) {
+                setError("Authentication required. Please login again.");
+                setIsProcessing(false);
+                return;
+            }
+
             // Create FormData
             const formData = new FormData();
-            formData.append("file", videoFile);
+            formData.append("video", videoFile);
             formData.append("style", audioConfig.style);
             formData.append("pace", audioConfig.pace);
             formData.append("voice_id", voiceConfig.voiceId);
@@ -78,6 +100,7 @@ export default function NewVideoPage() {
                 {
                     headers: {
                         "Content-Type": "multipart/form-data",
+                        "Authorization": `Bearer ${authToken}`
                     },
                     timeout: 600000, // 10 minutes
                 }
@@ -86,84 +109,90 @@ export default function NewVideoPage() {
             if (response.data.status === "completed") {
                 setProcessingResult(response.data);
                 setCurrentStep("complete");
+                // Refresh credits to reflect deduction
+                if (refreshUser) refreshUser();
+                console.log("✅ Processing complete:", response.data);
+                console.log("📊 Analysis object:", response.data.analysis);
+                console.log("📝 Beats array:", response.data.analysis?.beats);
+                if (response.data.analysis?.beats?.[0]) {
+                    console.log("🔍 First beat:", response.data.analysis.beats[0]);
+                }
             } else {
                 setError(response.data.message || "Unknown error occurred");
             }
         } catch (err: any) {
-            console.error("Error processing video:", err);
-            setError(err.response?.data?.message || err.message || "Failed to process video");
+            console.error("❌ Processing error:", err);
+            setError(err.response?.data?.message || err.message || "Processing failed");
+            setCurrentStep("upload");
         } finally {
             setIsProcessing(false);
         }
     };
 
+    const handleReset = () => {
+        setVideoFile(null);
+        setProcessingResult(null);
+        setError(null);
+        setCurrentStep("upload");
+    };
+
     const steps = [
         { id: "upload" as Step, label: "Upload Video", number: 1 },
         { id: "voice" as Step, label: "Voice Settings", number: 2 },
-        { id: "audio" as Step, label: "Audio & Style", number: 3 },
+        { id: "audio" as Step, label: "Audio Settings", number: 3 },
+        { id: "processing" as Step, label: "Processing", number: 4 },
+        { id: "complete" as Step, label: "Complete", number: 5 },
     ];
 
-    const currentStepIndex = steps.findIndex((s) => s.id === currentStep);
+    const getStepStatus = (stepId: Step) => {
+        const currentIndex = steps.findIndex((s) => s.id === currentStep);
+        const stepIndex = steps.findIndex((s) => s.id === stepId);
+
+        if (stepIndex < currentIndex) return "completed";
+        if (stepIndex === currentIndex) return "current";
+        return "upcoming";
+    };
 
     return (
         <ProtectedRoute>
             <DashboardLayout>
-                <div className="max-w-5xl mx-auto">
+                <div className="space-y-8">
                     {/* Header */}
-                    <div className="mb-8">
-                        <Link
-                            href="/"
-                            className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 mb-4 font-medium hover:gap-3 transition-all"
-                        >
-                            <ArrowLeft className="h-4 w-4" />
-                            Back to Dashboard
-                        </Link>
+                    <div>
                         <h1 className="text-3xl font-bold text-gray-900">Create New Video</h1>
                         <p className="text-gray-600 mt-1">
                             Transform your video with AI-powered narration
                         </p>
                     </div>
 
-                    {/* Progress Steps - Hide during processing */}
-                    {currentStep !== "processing" && currentStep !== "complete" && (
-                        <div className="mb-10">
-                            <div className="flex items-center justify-between max-w-3xl mx-auto">
-                                {steps.map((step, index) => {
-                                    const isCurrent = currentStep === step.id;
-                                    const isPast = currentStepIndex > index;
-                                    const isLast = index === steps.length - 1;
-
+                    {/* Step Indicator */}
+                    {currentStep !== "complete" && (
+                        <div className="bg-white rounded-2xl border-2 border-gray-200 p-6">
+                            <div className="flex items-center justify-between">
+                                {steps.slice(0, -1).map((step, index) => {
+                                    const status = getStepStatus(step.id);
                                     return (
                                         <div key={step.id} className="flex items-center flex-1">
-                                            <div className="flex flex-col items-center flex-1">
-                                                {/* Circle */}
+                                            <div className="flex flex-col items-center">
                                                 <div
-                                                    className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg transition-all shadow-sm ${isCurrent
-                                                        ? "bg-primary-600 text-white ring-4 ring-primary-100 scale-110"
-                                                        : isPast
+                                                    className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm
+                                                        ${status === "completed"
                                                             ? "bg-green-500 text-white"
-                                                            : "bg-white border-2 border-gray-300 text-gray-400"
+                                                            : status === "current"
+                                                                ? "bg-primary-600 text-white ring-4 ring-blue-100"
+                                                                : "bg-gray-200 text-gray-600"
                                                         }`}
                                                 >
-                                                    {isPast ? <Check className="h-6 w-6" /> : step.number}
+                                                    {status === "completed" ? "✓" : step.number}
                                                 </div>
-                                                {/* Label */}
-                                                <span
-                                                    className={`text-sm mt-3 font-medium transition-all ${isCurrent
-                                                        ? "text-gray-900 font-semibold"
-                                                        : isPast
-                                                            ? "text-green-600"
-                                                            : "text-gray-500"
-                                                        }`}
-                                                >
+                                                <span className="text-xs mt-2 font-medium text-gray-700">
                                                     {step.label}
                                                 </span>
                                             </div>
-                                            {/* Connector Line */}
-                                            {!isLast && (
-                                                <div className="flex-1 px-4 -mt-10">
+                                            {index < steps.length - 2 && (
+                                                <div className="flex-1 h-1 mx-4 bg-gray-200 rounded">
                                                     <div
-                                                        className={`h-1 rounded-full transition-all ${isPast ? "bg-green-500" : "bg-gray-200"
+                                                        className={`h-full rounded transition-all ${status === "completed" ? "bg-green-500 w-full" : "w-0"
                                                             }`}
                                                     />
                                                 </div>
@@ -212,44 +241,100 @@ export default function NewVideoPage() {
                             />
                         )}
 
+                        {/* Complete Step with Script */}
                         {currentStep === "complete" && processingResult && (
-                            <div className="text-center py-12">
-                                <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                                    <Check className="h-10 w-10 text-green-600" />
+                            <div className="space-y-6">
+                                <div className="text-center mb-6">
+                                    <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                        <CheckCircle className="h-8 w-8 text-green-600" />
+                                    </div>
+                                    <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                                        Video Generated Successfully!
+                                    </h2>
+                                    <p className="text-gray-600">
+                                        Processing time: {processingResult.processing_time}
+                                    </p>
                                 </div>
-                                <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                                    Video Processing Complete!
-                                </h2>
-                                <p className="text-gray-600 mb-8">
-                                    Your video has been successfully processed with AI narration
-                                </p>
 
-                                {processingResult.output_video && (
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    {/* Video Preview */}
                                     <div className="space-y-4">
-                                        <video
-                                            src={`http://localhost:8000/${processingResult.output_video}`}
-                                            controls
-                                            className="w-full max-w-2xl mx-auto rounded-xl shadow-lg"
-                                        />
-
-                                        <div className="flex gap-4 justify-center">
-                                            <a
-                                                href={`http://localhost:8000/${processingResult.output_video}`}
-                                                download
-                                                className="px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-semibold transition-colors"
+                                        <h3 className="font-semibold text-lg text-gray-900">
+                                            Generated Video
+                                        </h3>
+                                        <div className="bg-black rounded-xl overflow-hidden aspect-video">
+                                            <video
+                                                controls
+                                                className="w-full h-full"
+                                                src={processingResult.storage_url}
                                             >
+                                                Your browser does not support video playback.
+                                            </video>
+                                        </div>
+
+                                        <div className="flex gap-3">
+                                            <a
+                                                href={processingResult.storage_url}
+                                                download
+                                                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-semibold transition-colors"
+                                            >
+                                                <Download className="h-5 w-5" />
                                                 Download Video
                                             </a>
-                                            <Link
-                                                href="/new"
-                                                onClick={() => window.location.reload()}
-                                                className="px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg font-semibold transition-colors"
+                                            <a
+                                                href="/videos"
+                                                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border-2 border-gray-300 hover:border-primary-300 hover:bg-primary-50 text-gray-700 rounded-xl font-semibold transition-colors"
                                             >
-                                                Create Another
-                                            </Link>
+                                                <FileVideo className="h-5 w-5" />
+                                                My Videos
+                                            </a>
                                         </div>
                                     </div>
-                                )}
+
+                                    {/* Narration Script */}
+                                    <div className="space-y-4">
+                                        <h3 className="font-semibold text-lg text-gray-900">
+                                            Narration Script
+                                        </h3>
+                                        <div className="bg-gray-50 rounded-xl p-4 max-h-96 overflow-y-auto space-y-3">
+                                            {processingResult.analysis?.beats && processingResult.analysis.beats.length > 0 ? (
+                                                processingResult.analysis.beats.map((beat, index) => (
+                                                    <div
+                                                        key={index}
+                                                        className="bg-white rounded-lg p-4 border border-gray-200"
+                                                    >
+                                                        <div className="flex items-start gap-3">
+                                                            <div className="flex-shrink-0 w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
+                                                                <span className="text-primary-600 font-semibold text-sm">
+                                                                    {index + 1}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="text-xs text-gray-500 mb-1">
+                                                                    {beat.start_s?.toFixed(1)}s - {beat.end_s?.toFixed(1)}s
+                                                                </div>
+                                                                <p className="text-gray-900 leading-relaxed">
+                                                                    {beat.voiceover?.script || beat.visual_summary || "No narration text"}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="text-center text-gray-500 py-8">
+                                                    No narration script available
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button
+                                    onClick={handleReset}
+                                    className="w-full px-6 py-3 border-2 border-gray-300 hover:border-primary-300 hover:bg-primary-50 text-gray-700 rounded-xl font-semibold transition-colors"
+                                >
+                                    Create Another Video
+                                </button>
                             </div>
                         )}
                     </div>

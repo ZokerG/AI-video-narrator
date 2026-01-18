@@ -44,7 +44,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     credits: Mapped[int] = mapped_column(Integer, default=100)
-    google_drive_folder_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    plan: Mapped[str] = mapped_column(String(50), default="free")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 # Video model
@@ -55,8 +55,8 @@ class Video(Base):
     user_id: Mapped[int] = mapped_column(Integer, nullable=False)
     original_filename: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     output_path: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
-    drive_file_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    drive_link: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    storage_object_name: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    storage_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     thumbnail_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="processing")
@@ -89,6 +89,10 @@ async def get_user_by_email(email: str, session: AsyncSession) -> Optional[User]
 async def get_user_by_id(user_id: int, session: AsyncSession) -> Optional[User]:
     """Get user by ID"""
     from sqlalchemy import select
+    # Ensure user_id is int
+    user_id = int(user_id) if user_id else None
+    if user_id is None:
+        return None
     result = await session.execute(select(User).where(User.id == user_id))
     return result.scalar_one_or_none()
 

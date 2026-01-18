@@ -7,6 +7,7 @@ interface User {
     id: number;
     email: string;
     credits: number;
+    plan?: string;
     created_at: string;
 }
 
@@ -16,6 +17,7 @@ interface AuthContextType {
     login: (email: string, password: string) => Promise<void>;
     register: (email: string, password: string) => Promise<void>;
     logout: () => void;
+    refreshUser: () => Promise<void>;
     isLoading: boolean;
     error: string | null;
 }
@@ -41,6 +43,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         setIsLoading(false);
     }, []);
+
+    const refreshUser = async () => {
+        if (!token) return;
+        try {
+            const response = await axios.get(`${API_URL}/auth/me`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setUser(response.data);
+            localStorage.setItem("auth_user", JSON.stringify(response.data));
+        } catch (error) {
+            console.error("Failed to refresh user data", error);
+        }
+    };
 
     const login = async (email: string, password: string) => {
         try {
@@ -105,7 +120,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return (
         <AuthContext.Provider
-            value={{ user, token, login, register, logout, isLoading, error }}
+            value={{ user, token, login, register, logout, refreshUser, isLoading, error }}
         >
             {children}
         </AuthContext.Provider>

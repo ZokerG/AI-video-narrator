@@ -1,13 +1,60 @@
 """
 Storage management layer for videos and audio files
-Abstracts local and Google Drive storage
+Uses MinIO (S3-compatible) object storage
 """
-from core.drive import get_or_create_user_folder, upload_file, delete_file
+from core.minio_storage import create_bucket_if_not_exists, upload_file, delete_file, get_presigned_url
 from core.database import Video, AsyncSession, User
 from sqlalchemy import select
 from datetime import datetime
 from typing import List, Dict, Optional
 import os
+
+def save_video_to_storage(
+    user: User,
+    video_path: str,
+    session: AsyncSession,
+    metadata: Dict
+) -> Video:
+    """
+    Save video to MinIO and create database record
+    
+    Args:
+        user: User object
+        video_path: Path to the video file
+        session: Database session (not async here, but passed as async)
+        metadata: Additional metadata (voice_config, audio_config, etc.)
+    
+    Returns:
+        Video database object
+    """
+    # Ensure bucket exists
+    create_bucket_if_not_exists()
+    
+    # Create object name: users/{user_id}/videos/final_{timestamp}.mp4
+    timestamp = int(datetime.utcnow().timestamp())
+    object_name = f"users/{user.id}/videos/final_{timestamp}.mp4"
+    
+    # Upload to MinIO
+    storage_data = upload_file(video_path, object_name)
+    
+    # Create video record in database
+    video = Video(
+        user_id=user.id,
+        original_filename=metadata.get('original_filename', f'video_{timestamp}.mp4'),
+        output_path=video_path,  # Keep local path for reference
+        storage_object_name=storage_data['object_name'],
+        storage_url=storage_data['url'],
+        file_size=storage_data['file_size'],
+        status='completed',
+        voice_config=metadata.get('voice_config'),
+        audio_config=metadata.get('audio_config'),
+        completed_at=datetime.utcnow()
+    )
+    
+    session.add(video)
+    
+    print(f"💾 Saved video to MinIO for user {user.email} at {object_name}")
+    return video
 
 async def save_video_to_drive(
     user: User,
@@ -16,53 +63,10 @@ async def save_video_to_drive(
     metadata: Dict
 ) -> Video:
     """
-    Save video to Google Drive and create database record
-    
-    Args:
-        user: User object
-        video_path: Path to the video file
-        session: Database session
-        metadata: Additional metadata (voice_config, audio_config, etc.)
-    
-    Returns:
-        Video database object
+    Async wrapper for save_video_to_storage
+    (Kept name for compatibility with existing code)
     """
-    # Get or create user folder structure in Drive
-    folders = get_or_create_user_folder(user.email)
-    
-    # Update user's drive_folder_id if not set
-    if not user.google_drive_folder_id:
-        user.google_drive_folder_id = folders['user_folder_id']
-        session.add(user)
-    
-    # Upload video to Drive
-    file_name = f"video_{int(datetime.utcnow().timestamp())}_final.mp4"
-    drive_data = upload_file(
-        file_path=video_path,
-        folder_id=folders['outputs_folder_id'],
-        file_name=file_name
-    )
-    
-    # Create video record in database
-    video = Video(
-        user_id=user.id,
-        original_filename=metadata.get('original_filename', file_name),
-        output_path=video_path,  # Keep local path for now
-        drive_file_id=drive_data['file_id'],
-        drive_link=drive_data['download_link'],
-        file_size=drive_data['file_size'],
-        status='completed',
-        voice_config=metadata.get('voice_config'),
-        audio_config=metadata.get('audio_config'),
-        completed_at=datetime.utcnow()
-    )
-    
-    session.add(video)
-    await session.flush()
-    await session.refresh(video)
-    
-    print(f"💾 Saved video to Drive for user {user.email}")
-    return video
+    return save_video_to_storage(user, video_path, session, metadata)
 
 async def get_user_videos(user_id: int, session: AsyncSession) -> List[Video]:
     """Get all videos for a user"""
@@ -75,7 +79,7 @@ async def get_user_videos(user_id: int, session: AsyncSession) -> List[Video]:
 
 async def delete_video(video_id: int, user_id: int, session: AsyncSession) -> bool:
     """
-    Delete video from Drive and database
+    Delete video from MinIO and database
     
     Returns True if successful, False otherwise
     """
@@ -91,12 +95,12 @@ async def delete_video(video_id: int, user_id: int, session: AsyncSession) -> bo
     if not video:
         return False
     
-    # Delete from Drive
-    if video.drive_file_id:
+    # Delete from MinIO
+    if video.storage_object_name:
         try:
-            delete_file(video.drive_file_id)
+            delete_file(video.storage_object_name)
         except Exception as e:
-            print(f"Error deleting from Drive: {e}")
+            print(f"Error deleting from MinIO: {e}")
             # Continue anyway to remove from DB
     
     # Delete local file if exists
