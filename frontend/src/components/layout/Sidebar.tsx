@@ -10,7 +10,7 @@ const navigation = [
     { name: "New Video", href: "/new", icon: Plus },
     { name: "My Videos", href: "/videos", icon: Video },
     { name: "Voices", href: "/voices", icon: Mic },
-    { name: "Settings", href: "/settings", icon: Settings },
+    { name: "Connections", href: "/settings/connections", icon: Settings },
     { name: "Billing", href: "/billing", icon: CreditCard },
     { name: "Help", href: "/help", icon: HelpCircle },
 ];

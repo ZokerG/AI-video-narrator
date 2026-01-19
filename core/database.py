@@ -4,7 +4,7 @@ Uses SQLAlchemy with async PostgreSQL
 """
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, Integer, Boolean, DateTime, Text, JSON
+from sqlalchemy import String, Integer, Boolean, DateTime, Text, JSON, ForeignKey
 from datetime import datetime
 from typing import Optional
 import os
@@ -65,6 +65,29 @@ class Video(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+# Social Account model
+class SocialAccount(Base):
+    __tablename__ = "social_accounts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    
+    platform: Mapped[str] = mapped_column(String(50), nullable=False) # facebook, instagram, tiktok
+    platform_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    username: Mapped[str] = mapped_column(String(255), nullable=True)
+    picture_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # OAuth Credentials
+    access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    refresh_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Metadata (e.g. page_ids, permissions)
+    meta_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 # Dependency to get database session
 async def get_db_session():

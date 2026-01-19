@@ -16,6 +16,10 @@ from core.auth import (
     create_access_token,
     get_current_user
 )
+from core.database import SocialAccount
+import httpx
+import uuid
+from typing import Optional
 from core.storage import save_video_to_drive, get_user_videos, delete_video
 from elevenlabs import ElevenLabs
 
@@ -26,6 +30,13 @@ os.makedirs("uploads", exist_ok=True)
 os.makedirs("outputs", exist_ok=True)
 
 app = FastAPI(title="Gemini Video Narrator API")
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database tables on startup"""
+    from core.database import engine, Base
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 # Configure CORS for frontend
 app.add_middleware(
@@ -420,6 +431,177 @@ async def delete_user_video(
     await session.commit()
     
     return {"message": "Video deleted successfully"}
+
+# ============= Social Media Authentication Endpoints =============
+
+@app.get("/auth/{platform}/login")
+async def social_login(platform: str, current_user: User = Depends(get_current_user)):
+    """Convert platform to OAuth URL and redirect"""
+    # Generate random state to prevent CSRF (and bind to user)
+    state = f"{current_user.id}:{uuid.uuid4().hex}"
+    
+    redirect_uri = f"http://localhost:8000/auth/{platform}/callback"
+    
+    if platform == "facebook":
+        client_id = os.getenv("FACEBOOK_CLIENT_ID")
+        scope = "public_profile,pages_show_list,pages_read_engagement,pages_manage_posts"
+        authorization_url = (
+            f"https://www.facebook.com/v18.0/dialog/oauth?"
+            f"client_id={client_id}&redirect_uri={redirect_uri}&state={state}&scope={scope}"
+        )
+    
+    elif platform == "instagram":
+        # Usually handled via Facebook Login but with different permissions or IG Basic Display
+        # We will assume Facebook Login for Pages flow here
+        client_id = os.getenv("FACEBOOK_CLIENT_ID")
+        scope = "instagram_basic,instagram_content_publish,pages_show_list"
+        authorization_url = (
+            f"https://www.facebook.com/v18.0/dialog/oauth?"
+            f"client_id={client_id}&redirect_uri={redirect_uri}&state={state}&scope={scope}"
+        )
+        
+    elif platform == "tiktok":
+        client_key = os.getenv("TIKTOK_CLIENT_KEY")
+        scope = "user.info.basic,video.upload"
+        authorization_url = (
+            f"https://www.tiktok.com/v2/auth/authorize/?"
+            f"client_key={client_key}&response_type=code&scope={scope}&redirect_uri={redirect_uri}&state={state}"
+        )
+        
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported platform")
+        
+    return {"url": authorization_url}
+
+@app.get("/auth/{platform}/callback")
+async def social_callback(
+    platform: str, 
+    code: str, 
+    state: str,
+    session: AsyncSession = Depends(get_db_session)
+):
+    """Handle OAuth callback"""
+    # Extract user_id from state
+    try:
+        user_id = int(state.split(":")[0])
+    except:
+        raise HTTPException(status_code=400, detail="Invalid state parameter")
+        
+    # Verify user exists
+    from core.database import get_user_by_id
+    user = await get_user_by_id(user_id, session)
+    if not user:
+        raise HTTPException(status_code=400, detail="User not found")
+
+    redirect_uri = f"http://localhost:8000/auth/{platform}/callback"
+    access_token = ""
+    platform_user_id = ""
+    username = ""
+    
+    async with httpx.AsyncClient() as client:
+        if platform == "facebook" or platform == "instagram":
+            # Exchange code for token
+            token_url = (
+                f"https://graph.facebook.com/v18.0/oauth/access_token?"
+                f"client_id={os.getenv('FACEBOOK_CLIENT_ID')}&"
+                f"redirect_uri={redirect_uri}&"
+                f"client_secret={os.getenv('FACEBOOK_CLIENT_SECRET')}&"
+                f"code={code}"
+            )
+            resp = await client.get(token_url)
+            data = resp.json()
+            
+            if "error" in data:
+                raise HTTPException(status_code=400, detail=str(data["error"]))
+                
+            access_token = data["access_token"]
+            
+            # Get User Info
+            me_url = f"https://graph.facebook.com/me?fields=id,name,picture&access_token={access_token}"
+            me_resp = await client.get(me_url)
+            me_data = me_resp.json()
+            
+            platform_user_id = me_data["id"]
+            username = me_data.get("name", "Unknown")
+            
+        elif platform == "tiktok":
+            # Exchange code for token
+            token_url = "https://open.tiktokapis.com/v2/oauth/token/"
+            headers = {"Content-Type": "application/x-www-form-urlencoded"}
+            data = {
+                "client_key": os.getenv("TIKTOK_CLIENT_KEY"),
+                "client_secret": os.getenv("TIKTOK_CLIENT_SECRET"),
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": redirect_uri
+            }
+            resp = await client.post(token_url, headers=headers, data=data)
+            token_data = resp.json()
+            
+            if "error" in token_data:
+                 raise HTTPException(status_code=400, detail=str(token_data))
+                 
+            access_token = token_data.get("access_token")
+            # For real implementation need to fetch user info
+            platform_user_id = "tiktok_user" # Placeholder
+            username = "TikTok User" # Placeholder
+
+    # Save to DB
+    from sqlalchemy import select
+    # Check if account exists
+    stmt = select(SocialAccount).where(
+        SocialAccount.user_id == user_id,
+        SocialAccount.platform == platform,
+        SocialAccount.platform_user_id == platform_user_id
+    )
+    result = await session.execute(stmt)
+    existing = result.scalar_one_or_none()
+    
+    if existing:
+        existing.access_token = access_token
+        existing.is_active = True
+        # Update other fields
+    else:
+        new_account = SocialAccount(
+            user_id=user_id,
+            platform=platform,
+            platform_user_id=platform_user_id,
+            username=username,
+            access_token=access_token,
+            is_active=True
+        )
+        session.add(new_account)
+        
+    await session.commit()
+    
+    # Redirect back to frontend
+    return {"status": "success", "message": f"{platform} connected successfully"}
+
+@app.get("/social/accounts")
+async def get_social_accounts(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
+):
+    """List connected social accounts"""
+    from sqlalchemy import select
+    stmt = select(SocialAccount).where(
+        SocialAccount.user_id == current_user.id,
+        SocialAccount.is_active == True
+    )
+    result = await session.execute(stmt)
+    accounts = result.scalars().all()
+    
+    return {
+        "accounts": [
+            {
+                "id": acc.id,
+                "platform": acc.platform,
+                "username": acc.username,
+                "created_at": acc.created_at.isoformat()
+            }
+            for acc in accounts
+        ]
+    }
 
 if __name__ == "__main__":
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
