@@ -17,27 +17,31 @@ SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
 # Get credentials file path
 CREDENTIALS_FILE = os.getenv("GOOGLE_DRIVE_CREDENTIALS_FILE")
-if not CREDENTIALS_FILE:
-    raise ValueError("GOOGLE_DRIVE_CREDENTIALS_FILE not set in environment")
 
-def get_drive_service():
+def get_drive_service(credentials=None):
     """Initialize and return Google Drive API service"""
     try:
-        credentials = service_account.Credentials.from_service_account_file(
-            CREDENTIALS_FILE, scopes=SCOPES
-        )
-        service = build('drive', 'v3', credentials=credentials)
-        return service
+        if credentials:
+            return build('drive', 'v3', credentials=credentials)
+            
+        # Fallback to Service Account
+        if CREDENTIALS_FILE and os.path.exists(CREDENTIALS_FILE):
+            creds = service_account.Credentials.from_service_account_file(
+                CREDENTIALS_FILE, scopes=SCOPES
+            )
+            return build('drive', 'v3', credentials=creds)
+        else:
+             raise ValueError("No credentials provided and GOOGLE_DRIVE_CREDENTIALS_FILE not set or found")
     except Exception as e:
         print(f"Error initializing Drive service: {e}")
         raise
 
-def create_folder(folder_name: str, parent_folder_id: Optional[str] = None) -> str:
+def create_folder(folder_name: str, parent_folder_id: Optional[str] = None, credentials=None) -> str:
     """
     Create a folder in Google Drive
     Returns the folder ID
     """
-    service = get_drive_service()
+    service = get_drive_service(credentials)
     
     file_metadata = {
         'name': folder_name,
@@ -59,32 +63,44 @@ def create_folder(folder_name: str, parent_folder_id: Optional[str] = None) -> s
         print(f"Error creating folder: {error}")
         raise
 
-def get_or_create_user_folder(user_email: str, root_folder_id: Optional[str] = None) -> Dict[str, str]:
+def get_or_create_user_folder(user_email: str, root_folder_id: Optional[str] = None, credentials=None) -> Dict[str, str]:
     """
     Get or create user folder structure: root/user_email/outputs
     Returns dict with 'user_folder_id' and 'outputs_folder_id'
     """
-    service = get_drive_service()
+    service = get_drive_service(credentials)
     
-    # Step 1: Check if root "AI Video Narrator" folder exists
+    # Step 1: Get root folder ID (from env or find/create)
     if not root_folder_id:
-        query = "name='AI Video Narrator' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        try:
-            results = service.files().list(
-                q=query,
-                spaces='drive',
-                fields='files(id, name)'
-            ).execute()
-            
-            files = results.get('files', [])
-            if files:
-                root_folder_id = files[0]['id']
-                print(f"📁 Found existing root folder: {root_folder_id}")
-            else:
-                root_folder_id = create_folder("AI Video Narrator")
-        except HttpError as error:
-            print(f"Error searching for root folder: {error}")
-            root_folder_id = create_folder("AI Video Narrator")
+        env_root_id = os.getenv("GOOGLE_DRIVE_ROOT_FOLDER_ID")
+        if env_root_id:
+            root_folder_id = env_root_id
+            # User Preference: "No create mas carpetas" (Don't create more folders)
+            # If a specific Root folder is configured, treat it as the final destination
+            return {
+                'user_folder_id': root_folder_id,
+                'outputs_folder_id': root_folder_id
+            }
+        else:
+            # Fallback logic for finding/creating "AI Video Narrator"
+            query = "name='AI Video Narrator' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            try:
+                results = service.files().list(
+                    q=query,
+                    spaces='drive',
+                    fields='files(id, name)'
+                ).execute()
+                
+                files = results.get('files', [])
+                if files:
+                    root_folder_id = files[0]['id']
+                else:
+                    root_folder_id = create_folder("AI Video Narrator", credentials=credentials)
+            except HttpError as error:
+                root_folder_id = create_folder("AI Video Narrator", credentials=credentials)
+    
+    # ... Rest of logic (Step 2 and 3) is now only reached if env_root_id was NOT set
+    # OR we can add a flag. But based on user request "en la carpeta que yo cree", implies strict usage.
     
     # Step 2: Check if user folder exists
     query = f"name='{user_email}' and '{root_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
@@ -98,12 +114,10 @@ def get_or_create_user_folder(user_email: str, root_folder_id: Optional[str] = N
         files = results.get('files', [])
         if files:
             user_folder_id = files[0]['id']
-            print(f"📁 Found existing user folder: {user_folder_id}")
         else:
-            user_folder_id = create_folder(user_email, root_folder_id)
+            user_folder_id = create_folder(user_email, root_folder_id, credentials=credentials)
     except HttpError as error:
-        print(f"Error searching for user folder: {error}")
-        user_folder_id = create_folder(user_email, root_folder_id)
+        user_folder_id = create_folder(user_email, root_folder_id, credentials=credentials)
     
     # Step 3: Check if outputs folder exists
     query = f"name='outputs' and '{user_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
@@ -117,24 +131,22 @@ def get_or_create_user_folder(user_email: str, root_folder_id: Optional[str] = N
         files = results.get('files', [])
         if files:
             outputs_folder_id = files[0]['id']
-            print(f"📁 Found existing outputs folder: {outputs_folder_id}")
         else:
-            outputs_folder_id = create_folder("outputs", user_folder_id)
+            outputs_folder_id = create_folder("outputs", user_folder_id, credentials=credentials)
     except HttpError as error:
-        print(f"Error searching for outputs folder: {error}")
-        outputs_folder_id = create_folder("outputs", user_folder_id)
+        outputs_folder_id = create_folder("outputs", user_folder_id, credentials=credentials)
     
     return {
         'user_folder_id': user_folder_id,
         'outputs_folder_id': outputs_folder_id
     }
 
-def upload_file(file_path: str, folder_id: str, file_name: Optional[str] = None) -> Dict[str, str]:
+def upload_file(file_path: str, folder_id: str, file_name: Optional[str] = None, credentials=None) -> Dict[str, str]:
     """
     Upload a file to Google Drive
     Returns dict with 'file_id' and 'web_view_link'
     """
-    service = get_drive_service()
+    service = get_drive_service(credentials)
     
     if not file_name:
         file_name = os.path.basename(file_path)
@@ -163,15 +175,18 @@ def upload_file(file_path: str, folder_id: str, file_name: Optional[str] = None)
         
         file_id = file.get('id')
         
-        # Make file accessible with link
-        service.permissions().create(
-            fileId=file_id,
-            body={'type': 'anyone', 'role': 'reader'}
-        ).execute()
+        # Make file accessible with link (Anyone with link)
+        # Note: When uploading as User, we might not need to make it "anyone", but for the app to see it, maybe?
+        # Let's keep it for now.
+        try:
+            service.permissions().create(
+                fileId=file_id,
+                body={'type': 'anyone', 'role': 'reader'}
+            ).execute()
+        except Exception as e:
+            print(f"Warning: Could not set public permission: {e}")
         
-        # Get direct download link
         download_link = f"https://drive.google.com/uc?export=download&id={file_id}"
-        
         print(f"✅ Uploaded '{file_name}' to Drive (ID: {file_id})")
         
         return {
@@ -184,10 +199,9 @@ def upload_file(file_path: str, folder_id: str, file_name: Optional[str] = None)
         print(f"Error uploading file: {error}")
         raise
 
-def delete_file(file_id: str) -> bool:
+def delete_file(file_id: str, credentials=None) -> bool:
     """Delete a file from Google Drive"""
-    service = get_drive_service()
-    
+    service = get_drive_service(credentials)
     try:
         service.files().delete(fileId=file_id).execute()
         print(f"🗑️ Deleted file from Drive (ID: {file_id})")
@@ -196,12 +210,10 @@ def delete_file(file_id: str) -> bool:
         print(f"Error deleting file: {error}")
         return False
 
-def list_files_in_folder(folder_id: str) -> List[Dict]:
+def list_files_in_folder(folder_id: str, credentials=None) -> List[Dict]:
     """List all files in a folder"""
-    service = get_drive_service()
-    
+    service = get_drive_service(credentials)
     query = f"'{folder_id}' in parents and trashed=false"
-    
     try:
         results = service.files().list(
             q=query,
@@ -209,7 +221,6 @@ def list_files_in_folder(folder_id: str) -> List[Dict]:
             fields='files(id, name, mimeType, size, createdTime, webViewLink)',
             orderBy='createdTime desc'
         ).execute()
-        
         return results.get('files', [])
     except HttpError as error:
         print(f"Error listing files: {error}")

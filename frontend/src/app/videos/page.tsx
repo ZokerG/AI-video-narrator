@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useState, useEffect } from "react";
 import { FileVideo, Download, Trash2, Play, Calendar, HardDrive, Loader2 } from "lucide-react";
 import axios from "axios";
+import { API_BASE_URL } from "@/lib/api";
 
 interface Video {
     id: number;
@@ -34,7 +35,7 @@ export default function MyVideosPage() {
         setError(null);
 
         try {
-            const response = await axios.get("http://localhost:8000/videos/my-videos", {
+            const response = await axios.get(`${API_BASE_URL}/videos/my-videos`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },
@@ -56,7 +57,7 @@ export default function MyVideosPage() {
         setDeletingId(videoId);
 
         try {
-            await axios.delete(`http://localhost:8000/videos/${videoId}`, {
+            await axios.delete(`${API_BASE_URL}/videos/${videoId}`, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                 },

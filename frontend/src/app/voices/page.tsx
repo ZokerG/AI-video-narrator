@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useState, useEffect } from "react";
 import { Mic, Play, Loader2, Search, Filter } from "lucide-react";
 import axios from "axios";
+import { API_BASE_URL } from "@/lib/api";
 
 interface Voice {
     id: string;
@@ -44,7 +45,7 @@ export default function VoicesPage() {
         setError(null);
 
         try {
-            const response = await axios.get("http://localhost:8000/voices");
+            const response = await axios.get(`${API_BASE_URL}/voices`);
             if (response.data.voices) {
                 setVoices(response.data.voices);
                 setFilteredVoices(response.data.voices);
@@ -92,7 +93,7 @@ export default function VoicesPage() {
             formData.append("text", `Hello, I'm ${voiceName}. This is how I sound.`);
 
             const response = await axios.post(
-                "http://localhost:8000/voices/preview",
+                `${API_BASE_URL}/voices/preview`,
                 formData,
                 {
                     headers: {

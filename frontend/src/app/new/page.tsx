@@ -4,12 +4,14 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { VideoUploader } from "@/components/video/VideoUploader";
 import { VoiceConfiguration } from "@/components/video/VoiceConfiguration";
-import { AudioSettings } from "@/components/video/AudioSettings";
+import { AudioSettings, type AudioConfig } from "@/components/video/AudioSettings";
 import { ProcessingStatus } from "@/components/video/ProcessingStatus";
 import { useAuth } from "@/contexts/AuthContext";
 import { useState } from "react";
 import { CheckCircle, Download, FileVideo } from "lucide-react";
 import axios from "axios";
+import { AnalysisViewer } from "@/components/AnalysisViewer";
+import { API_BASE_URL } from "@/lib/api";
 
 type Step = "upload" | "voice" | "audio" | "processing" | "complete";
 
@@ -18,12 +20,6 @@ interface VoiceConfig {
     stability: number;
     similarityBoost: number;
     speed: number;
-}
-
-interface AudioConfig {
-    style: "viral" | "documentary" | "funny";
-    pace: "fast" | "medium" | "slow";
-    originalVolume: number;
 }
 
 interface ProcessingResult {
@@ -58,7 +54,9 @@ export default function NewVideoPage() {
     const [audioConfig, setAudioConfig] = useState<AudioConfig>({
         style: "viral",
         pace: "fast",
-        originalVolume: 30,
+        originalVolume: 10,
+        backgroundTrack: undefined,
+        backgroundVolume: 10
     });
 
     const [processingResult, setProcessingResult] = useState<ProcessingResult | null>(null);
@@ -93,9 +91,14 @@ export default function NewVideoPage() {
             formData.append("speed", voiceConfig.speed.toString());
             formData.append("original_volume", audioConfig.originalVolume.toString());
 
+            if (audioConfig.backgroundTrack) {
+                formData.append("background_track", audioConfig.backgroundTrack);
+                formData.append("background_volume", audioConfig.backgroundVolume.toString());
+            }
+
             // Call backend API
             const response = await axios.post<ProcessingResult>(
-                "http://localhost:8000/analyze",
+                `${API_BASE_URL}/analyze`,
                 formData,
                 {
                     headers: {

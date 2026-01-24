@@ -1,5 +1,7 @@
 "use client";
 
+import { API_BASE_URL } from "@/lib/api";
+
 export default function DebugAuthPage() {
     const checkAuth = () => {
         const token = localStorage.getItem("auth_token");
@@ -13,7 +15,7 @@ export default function DebugAuthPage() {
 
         if (token) {
             // Test API call
-            fetch("http://localhost:8000/auth/me", {
+            fetch(`${API_BASE_URL}/auth/me`, {
                 headers: {
                     "Authorization": `Bearer ${token}`
                 }

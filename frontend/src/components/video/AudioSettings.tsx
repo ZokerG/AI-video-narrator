@@ -1,11 +1,22 @@
 "use client";
 
-import { Volume2, Sparkles, Gauge, Zap, BookOpen, Smile } from "lucide-react";
+import { Volume2, Sparkles, Zap, BookOpen, Smile, Music } from "lucide-react";
+import { useEffect, useState, useRef } from "react";
+import axios from "axios";
+import { API_BASE_URL } from "@/lib/api";
 
-interface AudioConfig {
+export interface AudioConfig {
     style: "viral" | "documentary" | "funny";
     pace: "fast" | "medium" | "slow";
     originalVolume: number;
+    backgroundTrack?: string;
+    backgroundVolume: number;
+}
+
+interface AudioTrack {
+    id: string;
+    name: string;
+    url: string;
 }
 
 interface AudioSettingsProps {
@@ -23,8 +34,37 @@ export function AudioSettings({
     onBack,
     isProcessing,
 }: AudioSettingsProps) {
-    const updateConfig = (key: keyof AudioConfig, value: string | number) => {
+    const updateConfig = (key: keyof AudioConfig, value: string | number | undefined) => {
         onChange({ ...config, [key]: value });
+    };
+
+    const [tracks, setTracks] = useState<AudioTrack[]>([]);
+    const [isPlaying, setIsPlaying] = useState<string | null>(null);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    useEffect(() => {
+        const fetchTracks = async () => {
+            try {
+                const res = await axios.get(`${API_BASE_URL}/audio/background-tracks`);
+                setTracks(res.data.tracks || []);
+            } catch (error) {
+                console.error("Failed to load tracks", error);
+            }
+        };
+        fetchTracks();
+    }, []);
+
+    const togglePreview = (track: AudioTrack) => {
+        if (isPlaying === track.id) {
+            audioRef.current?.pause();
+            setIsPlaying(null);
+        } else {
+            if (audioRef.current) {
+                audioRef.current.src = API_BASE_URL + track.url;
+                audioRef.current.play();
+                setIsPlaying(track.id);
+            }
+        }
     };
 
     return (
@@ -80,6 +120,90 @@ export function AudioSettings({
                 </div>
             </div>
 
+            {/* Background Music Selection */}
+            <div className="bg-white rounded-xl p-6 border border-gray-200">
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
+                        <Music className="h-5 w-5 text-purple-600" />
+                    </div>
+                    <div>
+                        <p className="font-semibold text-gray-900">Background Music</p>
+                        <p className="text-xs text-gray-600">Ambient sound for your video</p>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 mb-4">
+                    <button
+                        onClick={() => updateConfig("backgroundTrack", undefined)}
+                        className={`p-3 rounded-lg border text-left flex items-center gap-3 transition-colors ${!config.backgroundTrack
+                            ? "border-purple-500 bg-purple-50 text-purple-700"
+                            : "border-gray-200 hover:bg-gray-50"
+                            }`}
+                    >
+                        <div className="w-4 h-4 rounded-full border border-current flex items-center justify-center">
+                            {!config.backgroundTrack && <div className="w-2 h-2 rounded-full bg-purple-600" />}
+                        </div>
+                        <span className="font-medium text-sm">No Background Music</span>
+                    </button>
+
+                    {tracks.map((track) => {
+                        const isSelected = config.backgroundTrack === track.id;
+                        return (
+                            <div
+                                key={track.id}
+                                className={`flex items-center p-2 rounded-lg border transition-all ${isSelected ? "border-purple-500 bg-purple-50" : "border-gray-200 hover:border-gray-300"
+                                    }`}
+                            >
+                                <button
+                                    onClick={() => updateConfig("backgroundTrack", track.id)}
+                                    className="flex-1 flex items-center gap-3 text-left p-1"
+                                >
+                                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${isSelected ? "border-purple-600" : "border-gray-400"
+                                        }`}>
+                                        {isSelected && <div className="w-2 h-2 rounded-full bg-purple-600" />}
+                                    </div>
+                                    <span className={`text-sm font-medium ${isSelected ? "text-purple-900" : "text-gray-700"}`}>
+                                        {track.name}
+                                    </span>
+                                </button>
+
+                                <button
+                                    onClick={() => togglePreview(track)}
+                                    className="p-2 hover:bg-black/5 rounded-full text-gray-500 hover:text-purple-600 transition-colors"
+                                >
+                                    {isPlaying === track.id ? (
+                                        <div className="w-3 h-3 bg-current rounded-sm animate-pulse" />
+                                    ) : (
+                                        <Volume2 className="h-4 w-4" />
+                                    )}
+                                </button>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Hidden Audio Player */}
+                <audio ref={audioRef} onEnded={() => setIsPlaying(null)} />
+
+                {/* Background Volume Slider (Only if track selected) */}
+                {config.backgroundTrack && (
+                    <div className="mt-4 pt-4 border-t border-gray-100">
+                        <div className="flex justify-between mb-2">
+                            <span className="text-xs font-semibold text-gray-600 uppercase">Music Volume</span>
+                            <span className="text-xs font-bold text-purple-600">{config.backgroundVolume}%</span>
+                        </div>
+                        <input
+                            type="range"
+                            min="0"
+                            max="50" // Max 50% usually enough for background
+                            value={config.backgroundVolume}
+                            onChange={(e) => updateConfig("backgroundVolume", parseInt(e.target.value))}
+                            className="w-full h-2 bg-gray-200 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-purple-600"
+                        />
+                    </div>
+                )}
+            </div>
+
             {/* Narrative Style */}
             <div>
                 <label className="block text-sm font-semibold text-gray-900 mb-4">
@@ -121,10 +245,10 @@ export function AudioSettings({
                         return (
                             <button
                                 key={style.value}
-                                onClick={() => updateConfig("style", style.value)}
+                                onClick={() => updateConfig("style", style.value as any)}
                                 className={`p-5 rounded-xl border-2 transition-all ${isActive
-                                        ? style.active
-                                        : `${style.border} bg-white hover:${style.gradient}`
+                                    ? style.active
+                                    : `${style.border} bg-white hover:${style.gradient}`
                                     }`}
                             >
                                 <div className="flex items-center gap-3 mb-3">
@@ -162,8 +286,8 @@ export function AudioSettings({
                                 key={pace.value}
                                 onClick={() => updateConfig("pace", pace.value)}
                                 className={`p-5 rounded-xl border-2 transition-all ${isActive
-                                        ? "border-primary-500 bg-primary-50 shadow-sm"
-                                        : "border-gray-200 bg-white hover:border-gray-300"
+                                    ? "border-primary-500 bg-primary-50 shadow-sm"
+                                    : "border-gray-200 bg-white hover:border-gray-300"
                                     }`}
                             >
                                 <div className="text-3xl mb-2">{pace.emoji}</div>

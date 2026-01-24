@@ -46,278 +46,244 @@ def clean_json_response(text: str) -> str:
 
 def analyze_video_content(video_path: str, style: str = "viral", pace: str = "fast") -> VideoAnalysis:
     """
-    Two-stage pipeline:
-    1. Visual Analysis (Gemini Vision) -> What is happening?
-    2. Script Generation (Gemini Text) -> What should we say?
+    Single-stage unified pipeline:
+    - Gemini analyzes video and generates narrative simultaneously
+    - Returns complete beats with timestamps and scripts in one call
     """
     # 1. Upload
     video_file = upload_to_gemini(video_path)
     wait_for_files_active([video_file])
 
-    # --- STAGE 1: VISUAL ANALYSIS ---
-    print("   ↳ 👁️ Stage 1: Visual Analysis...")
-    
-    visual_system_prompt = """
-<role>Eres un editor profesional de video especializado en segmentación visual.</role>
-
-<task>
-Analiza el video frame-by-frame y divídelo en "beats" visuales basándote en:
-- Cambios de escena o corte de cámara
-- Cambios significativos de ángulo
-- Eventos visuales importantes o acciones clave
-</task>
-
-<constraints>
-- Cada beat DEBE tener timecodes precisos al décimo de segundo (e.g., 3.2, no 3)
-- La descripción visual DEBE ser concisa (máximo 12 palabras)
-- Los beats NO deben solaparse (end_s de beat N = start_s de beat N+1)
-- Numera los beats secuencialmente empezando en 1
-- Devuelve ÚNICAMENTE JSON válido, sin texto adicional antes o después
-</constraints>
-
-<output_schema>
-[
-  {
-    "id": <número entero>,
-    "start_s": <decimal>,
-    "end_s": <decimal>,
-    "visual_description": "<descripción concisa de lo que ocurre visualmente>"
-  }
-]
-</output_schema>
-"""
-    
-    model_vision = genai.GenerativeModel(
-        model_name="gemini-2.0-flash-exp",
-        generation_config={"response_mime_type": "application/json", "temperature": 0.2},
-        system_instruction=visual_system_prompt
-    )
-    
-    # Prompt based on pace
-    pace_instructions = {
-        "fast": "Divide el video en beats cortos de 2-5 segundos para ritmo frenético.",
-        "medium": "Divide el video en beats de 5-10 segundos para ritmo moderado.",
-        "slow": "Divide el video en beats largos de 10-20 segundos para ritmo calmado."
-    }
-    pace_prompt = pace_instructions.get(pace, pace_instructions["fast"])
-    
-    response_vision = model_vision.generate_content([video_file, pace_prompt])
-    print(f"   RAW Stage 1 Output: {response_vision.text[:200]}...") # Debug log
-    
-    import json
-    try:
-        visual_data = json.loads(clean_json_response(response_vision.text))
-        # Sort by start time just in case
-        visual_data.sort(key=lambda x: x.get('start_s', 0))
-    except Exception as e:
-        print(f"Error parsing Stage 1: {e}")
-        print(f"Full Stage 1 Response: {response_vision.text}")
-        return VideoAnalysis()
-
-    # --- STAGE 2: SCRIPT GENERATION ---
-    print(f"   ↳ ✍️ Stage 2: Scripting ({len(visual_data)} beats)...")
-    
-    # Calculate word constraints using calibrated WPS
-    voice_id = os.environ.get("ELEVENLABS_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb")  # Voz desde .env
-    words_per_sec = get_wps_for_voice(voice_id, language="es", style=style)
-    
-    enriched_visuals = []
-    for v in visual_data:
-        duration = v.get('end_s', 0) - v.get('start_s', 0)
-        
-        # MEJORA: Manejo de silencios estratégicos para beats muy cortos
-        if duration < 1.5:
-            target_words = 0  # Forzar silencio para micro-cortes (más inmersivo)
-        else:
-            # Usar WPS calibrado para calcular palabras objetivo
-            target_words = max(5, int(duration * words_per_sec * 0.85))  # 85% para evitar cortes
-        
-        v['target_word_count'] = target_words
-        v['duration_s'] = duration
-        enriched_visuals.append(v)
-    
-    print(f"   📊 Using calibrated WPS: {words_per_sec:.2f} words/second")
+    # --- UNIFIED ANALYSIS & NARRATION ---
+    print("   ↳ 🎬 Analyzing video and generating narrative...")
     
     from core.prompts import get_system_instruction
-    script_system_instruction = get_system_instruction(style, pace)
     
-    import json
+    # Get base system instruction with style and pace
+    base_instruction = get_system_instruction(style, pace)
     
-    # Determinar instrucciones de POV según estilo
-    pov_instructions = {
-        "viral": """MODO ACTUACIÓN INMERSIVA:
-- Tú ERES el protagonista. Usa primera persona: "Yo", "Me", "Mi"
-- NO digas "Veo un teléfono". DI: "El teléfono sonó y mi corazón se detuvo"
-- REACCIONA emocionalmente a lo que pasa, no lo describas como comentarista
-- Habla como si ESTUVIERAS VIVIENDO el momento, no observándolo""",
-        "documentary": """MODO NARRADOR DOCUMENTAL:
-- Usa tercera persona objetiva y tono profesional
-- Describe con precisión pero mantén interés narrativo
-- Contexto histórico o científico cuando sea relevante""",
-        "funny": """MODO COMEDIANTE:
-- Usa primera persona con perspectiva humorística
-- Haz observaciones sarcásticas o absurdas sobre lo que pasa
-- Timing cómico: las pausas también pueden ser chistes"""
-    }
+    # Get video duration from file
+    from core.video import check_video_duration
+    video_duration = check_video_duration(video_path)
+    print(f"   📹 Video duration: {video_duration:.1f}s")
     
-    pov_instruction = pov_instructions.get(style, pov_instructions["viral"])
+    # Calculate WPS for narrative
+    voice_id = os.environ.get("ELEVENLABS_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb")
+    words_per_sec = get_wps_for_voice(voice_id, language="es", style=style)
+    total_words_max = int(video_duration * words_per_sec * 0.85)
+    print(f"   📊 Using calibrated WPS: {words_per_sec:.2f} words/second")
+    print(f"   📝 Target narrative length: ~{total_words_max} words")
     
-    script_prompt = f"""
-<context>
-Tienes una lista de beats visuales extraídos del video.
-Cada beat tiene:
-- visual_description: qué está pasando
-- duration_s: duración del beat en segundos
-- target_word_count: PALABRAS EXACTAS que debes escribir para llenar el tiempo
-</context>
+    unified_system_prompt = f"""{base_instruction}
 
-<input>
-Visual Beats:
-{json.dumps(enriched_visuals, indent=2)}
-</input>
+<segmented_continuous_narrative_approach>
+ENFOQUE DE NARRATIVA CONTINUA SEGMENTADA:
 
-<critical_timing_rules>
-1. El 'target_word_count' fue calculado científicamente basado en la voz real
-2. DEBES escribir EXACTAMENTE esa cantidad de palabras (±2 palabras máximo)
-3. Ejemplo: beat de 5s con target=12 → escribe entre 10-14 palabras
-4. Si target_word_count = 0, deja el script VACÍO (silencio estratégico)
-5. NUNCA fuerces palabras en beats muy cortos si target=0
-</critical_timing_rules>
+Este sistema genera UNA NARRATIVA COMPLETA coherente que luego se DIVIDE en segmentos sincronizados con cada beat visual.
 
-<narrative_quality_rules>
-{pov_instruction}
+PROCESO:
+1. Analiza el video completo y comprende la historia
+2. Crea beats visuales con timestamps precisos
+3. Escribe UNA narrativa completa fluida (~{total_words_max} palabras totales)
+4. DIVIDE esa narrativa en segmentos, asignando cada parte al beat correspondiente
 
-1. USA CONECTORES para fluidez narrativa: "Después...", "De repente...", "Pero entonces..."
-2. La narración debe fluir como UNA historia continua, no frases sueltas
-3. NO describas TODO, solo momentos importantes que generan emoción
-4. GÉNERO: Estilo {style} - mantén el tono consistente
-5. TIMING es SAGRADO: respeta el conteo de palabras o el audio se cortará
-</narrative_quality_rules>
+CLAVE: La narrativa debe ser UNA HISTORIA COHERENTE que se cuenta de forma continua,
+pero dividida inteligentemente para que cada beat tenga su porción sincronizada.
+</segmented_continuous_narrative_approach>
 
-<output_structure>
-Devuelve JSON en esta estructura EXACTA:
+<beat_creation>
+CREACIÓN DE BEATS VISUALES:
+- Analiza el video y crea beats con timestamps precisos
+- Cada beat representa un momento visual clave
+- Incluye: id, start_s, end_s, visual_summary
+- Calcula duración de cada beat para distribuir palabras
+</beat_creation>
+
+<narrative_segmentation>
+SEGMENTACIÓN DE LA NARRATIVA - MUY IMPORTANTE:
+
+El video dura {video_duration:.1f}s.
+La voz TTS tiene velocidad de {words_per_sec:.1f} palabras/segundo.
+Palabras totales disponibles: ~{total_words_max}
+
+PASO 1: ESCRIBIR NARRATIVA COMPLETA
+Escribe primero la historia completa en overall.full_narrative_script:
+- Inicio enganchante
+- Desarrollo coherente
+- Cierre satisfactorio
+- Tercera persona siempre
+- Nombres de personajes consistentes
+- Total: ~{total_words_max} palabras
+
+PASO 2: DIVIDIR EN SEGMENTOS POR BEAT
+Para cada beat, asigna un SEGMENTO de la narrativa completa:
+- El segmento debe corresponder temporalmente a lo que se ve en ese beat
+- Calcula palabras por beat usando: (end_s - start_s) × {words_per_sec:.1f} × 0.85
+- Los segmentos deben fluir naturalmente uno tras otro
+- Juntos, los segmentos forman la narrativa completa
+
+EJEMPLO (video 20s, 3 beats):
+
+overall.full_narrative_script: "En las sombras de la noche, El Jakal prepara su jugada más arriesgada. Cada movimiento es preciso, calculado. Sabe que no hay margen de error. Las calles están vacías, pero la tensión es palpable. Marcus observa desde la distancia. Este es el momento que definirá todo."
+
+beat[0] (0-7s, ~14 palabras): 
+  visual: "Hombre camina por calles oscuras"
+  script: "En las sombras de la noche, El Jakal prepara su jugada más arriesgada."
+
+beat[1] (7-13s, ~12 palabras):
+  visual: "Close-up de manos ajustando equipo"
+  script: "Cada movimiento es preciso, calculado. Sabe que no hay margen de error."
+
+beat[2] (13-20s, ~14 palabras):
+  visual: "Otra persona observando desde lejos"
+  script: "Las calles están vacías, pero la tensión es palpable. Marcus observa desde la distancia."
+
+REGLAS CRÍTICAS:
+- Cada beat.voiceover.script debe tener EXACTAMENTE las palabras calculadas (±2 aceptable)
+- Los scripts deben ser PARTES CONSECUTIVAS de la narrativa completa
+- NO repitas información entre beats
+- La suma de todos los scripts = narrativa completa
+- Mantén coherencia narrativa absoluta
+</narrative_segmentation>
+
+<character_naming_rules>
+CONTINUIDAD DE PERSONAJES:
+- Asigna nombres creativos desde el primer beat
+- USA LOS MISMOS NOMBRES en todos los beats
+- Ejemplos: "El Jakal", "Marcus", "La Doctora Chen"
+</character_naming_rules>
+
+<creative_storytelling>
+NARRATIVA ATRAPANTE:
+- Interpreta las escenas, no solo describas
+- Inventa motivaciones y contexto emocional
+- Agrega tensión y drama
+- Conecta causas y consecuencias
+- La narrativa debe sentirse como una historia completa, no fragmentos
+</creative_storytelling>
+
+<dramatic_pauses>
+PAUSAS ESTRATÉGICAS - SILENCIO CINEMATOGRÁFICO:
+
+Puedes agregar pausas dramáticas DESPUÉS de ciertos beats usando voiceover.pause_after_s.
+
+CUÁNDO USAR PAUSAS (0.3-0.8 segundos):
+✅ USAR pausa cuando:
+- Cambio de escena importante o transición temporal
+- Momento de suspense que requiere "respiración"
+- Antes de un reveal o giro dramático
+- Después de una frase impactante para dejar que "aterrice"
+- Cierre de segmento narrativo antes de clímax
+
+❌ NO usar pausa cuando:
+- La acción es continua y rápida
+- El diálogo fluye naturalmente al siguiente beat
+- Ya hay espacio natural entre beats
+
+DURACIÓN DE PAUSAS:
+- 0.3s: Pausa breve (cambio de escena suave)
+- 0.5s: Pausa media (suspense, transición)
+- 0.8s: Pausa larga (momento muy dramático)
+
+EJEMPLO:
+Beat 1: "El Jakal ajusta el arma con precisión absoluta."
+  → pause_after_s: 0.5 (dejar que la imagen del arma "respire")
+
+Beat 2: "Marcus lo observa desde las sombras, esperando el momento perfecto."
+  → pause_after_s: 0.0 (continúa fluidamente)
+
+Beat 3: "El disparo rompe el silencio de la noche."
+  → pause_after_s: 0.8 (pausa dramática después del clímax)
+
+REGLA: Usa pausas con moderación. No más del 30% de los beats deben tener pausa.
+</dramatic_pauses>
+
+<output_schema>
+ESTRUCTURA JSON REQUERIDA:
 {{
   "overall": {{
-    "hook": "<gancho inicial de 1 frase que enganche al espectador>",
-    "one_sentence_summary": "<resumen de 1 frase de todo el video>",
-    "tone": "<tono usado: {style}>"
+    "hook": "Frase inicial atrapante (5-10 palabras)",
+    "tone": "{style}",
+    "full_narrative_script": "LA NARRATIVA COMPLETA aquí. Escribe toda la historia de principio a fin, ~{total_words_max} palabras. Esta es la versión completa y fluida de la historia."
   }},
   "beats": [
     {{
-      "id": <mismo id del visual beat>,
-      "visual_summary": "<descripción de qué está pasando visualmente>",
-      "key_visuals": ["<tag visual 1>", "<tag visual 2>"],
+      "id": 1,
+      "start_s": 0.0,
+      "end_s": 7.2,
+      "visual_summary": "Descripción breve de lo que se ve",
       "voiceover": {{
-        "script": "<NARRACIÓN COMPLETA con target_word_count palabras>"
+        "script": "SEGMENTO 1 de la narrativa completa.",
+        "pause_after_s": 0.5
+      }}
+    }},
+    {{
+      "id": 2,
+      "start_s": 7.2,
+      "end_s": 14.5,
+      "visual_summary": "Descripción breve de lo que se ve",
+      "voiceover": {{
+        "script": "SEGMENTO 2 de la narrativa. Continúa donde terminó el segmento 1.",
+        "pause_after_s": 0.0
       }}
     }}
   ]
 }}
-</output_structure>
+</output_schema>
 
-<examples>
-Ejemplo de beat bien hecho:
-Input: {{"id": 1, "duration_s": 5.0, "target_word_count": 12, "visual_description": "Hombre corriendo por la playa"}}
-Output: {{"id": 1, "voiceover": {{"script": "Mira cómo este atleta corre con una técnica impresionante y una velocidad que te deja sin aliento"}}}}
-Palabras: 14 ✓ (dentro del rango 10-14)
-
-Ejemplo de beat MAL hecho (muy corto):
-Input: {{"id": 1, "duration_s": 5.0, "target_word_count": 12}}
-Output: {{"id": 1, "voiceover": {{"script": "Qué increíble"}}}}
-Palabras: 2 ❌ (causará silencio!)
-</examples>
-
-<critical>
-IMPORTANTE: 
-- La clave DEBE ser "beats", NO "scenes"
-- DEBES devolver exactamente el mismo 'id' para cada beat provisto en el input
-- NO fusiones beats ni cambies el orden
-- NO inventes beats adicionales
-- Respeta el número exacto de beats del INPUT
-</critical>
+<critical_reminders>
+1. overall.full_narrative_script = Historia completa (~{total_words_max} palabras)
+2. beat[i].voiceover.script = Segmento i de esa historia
+3. Segmentos deben fluir naturalmente: segmento1 + segmento2 + ... = narrativa completa
+4. Cada segmento sincronizado con su beat visual
+5. Tercera persona y nombres consistentes en TODO
+6. Calcula palabras por beat: (duration) × {words_per_sec:.1f} × 0.85
+</critical_reminders>
 """
     
-    model_text = genai.GenerativeModel(
-        model_name="gemini-2.0-flash-exp",
+    # Create model with unified system prompt
+    model = genai.GenerativeModel(
+        model_name="gemini-3-flash-preview",
         generation_config={"response_mime_type": "application/json", "temperature": 0.7},
-        system_instruction=script_system_instruction
+        system_instruction=unified_system_prompt
     )
     
-    response_text = model_text.generate_content(script_prompt)
-    print(f"   RAW Stage 2 Output: {response_text.text[:200]}...") # Debug log
-    
+    # Make single API call
     try:
-        final_data = json.loads(clean_json_response(response_text.text))
-        
-        # Handle case where Gemini wraps response in "VideoAnalysis" key
-        if 'VideoAnalysis' in final_data:
-            print("   ⚠️ Unwrapping 'VideoAnalysis' wrapper...")
-            final_data = final_data['VideoAnalysis']
-        
-        # Handle both 'beats' and 'scenes' keys (Gemini sometimes uses different naming)
-        beats_data = None
-        if 'beats' in final_data:
-            beats_data = final_data['beats']
-            print(f"   📝 Found {len(beats_data)} beats in Stage 2 response")
-        elif 'scenes' in final_data:
-            beats_data = final_data['scenes']
-            print(f"   📝 Found {len(beats_data)} scenes (renaming to beats)")
-            final_data['beats'] = beats_data
-        else:
-            print(f"   ⚠️ WARNING: No 'beats' or 'scenes' key found in Stage 2 response!")
-            print(f"   Available keys: {list(final_data.keys())}")
-        
-        # MEJORA: Mapeo basado en ID, no en índice (evita desincronización)
-        # Crear diccionario de búsqueda para los visuales
-        visual_lookup = {v['id']: v for v in visual_data}
-        
-        if beats_data:
-            final_beats = []
-            for beat in beats_data:
-                beat_id = beat.get('id')
-                # Usar ID para buscar, no la posición en la lista
-                if beat_id and beat_id in visual_lookup:
-                    v_beat = visual_lookup[beat_id]
-                    # Copiar timestamps ESTRICTOS del análisis visual (Stage 1)
-                    beat['start_s'] = v_beat['start_s']
-                    beat['end_s'] = v_beat['end_s']
-                    final_beats.append(beat)
-                else:
-                    print(f"   ⚠️ Warning: Beat ID {beat_id} not found in visual data")
-            
-            print(f"   ✅ Mapped {len(final_beats)} beats successfully")
-            final_data['beats'] = final_beats
-            
-        return VideoAnalysis(**final_data)
+        response = model.generate_content([video_file, f"Analiza este video y genera la narrativa completa."])
+        print(f"   ✅ Gemini response received ({len(response.text)} chars)")
         
     except Exception as e:
-        print(f"Error parsing Stage 2: {e}")
-        print(f"Full Stage 2 Response: {response_text.text}")
+        print(f"❌ Error calling Gemini API: {e}")
+        return VideoAnalysis()
+    
+    # Parse response
+    import json
+    try:
+        cleaned_text = clean_json_response(response.text)
+        result_data = json.loads(cleaned_text)
         
-        # --- FALLBACK MECHANISM ---
-        # If Stage 2 fails, we shouldn't return empty. We should use Stage 1 visuals.
-        print("⚠️ Stage 2 Failed. Falling back to Stage 1 Visuals.")
+        # Handle different response structures
+        if "VideoAnalysis" in result_data:
+            result_data = result_data["VideoAnalysis"]
         
-        fallback_beats = []
-        for v in visual_data:
-            fallback_beats.append({
-                "id": v.get("id"),
-                "start_s": v.get("start_s"),
-                "end_s": v.get("end_s"),
-                "visual_summary": v.get("visual_description", ""),
-                "key_visuals": [],
-                "voiceover": {
-                    "script": v.get("visual_description", "Scene without narration."),
-                    "subtitle": ""
-                }
-            })
-            
-        return VideoAnalysis(
-            duration_s=0.0,
-            overall={
-                "hook": "Fallback Analysis",
-                "one_sentence_summary": "We encountered an error generating the creative script, but here is the visual breakdown.",
-                "tone": "Technique"
-            },
-            beats=fallback_beats
-        )
+        # Ensure we have the beats array
+        if "scenes" in result_data and "beats" not in result_data:
+            result_data["beats"] = result_data.pop("scenes")
+        
+        # Debug: show first 3 beats
+        if "beats" in result_data and len(result_data["beats"]) > 0:
+            print(f"   📊 Generated {len(result_data['beats'])} beats")
+            for i, beat in enumerate(result_data["beats"][:3]):
+                print(f"   Beat {beat.get('id', i+1)}:")
+                print(f"      Time: {beat.get('start_s', 0):.1f}s - {beat.get('end_s', 0):.1f}s")
+                script = beat.get('voiceover', {}).get('script', '')
+                print(f"      Script: {script[:80] if script else '(empty)'}...")
+        
+        # Construct VideoAnalysis
+        return VideoAnalysis(**result_data)
+        
+    except Exception as e:
+        print(f"❌ Error parsing response: {e}")
+        print(f"   Raw response: {response.text[:500]}...")
+        return VideoAnalysis()

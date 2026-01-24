@@ -55,11 +55,7 @@ export function VideoUploader({ onUpload, isProcessing }: VideoUploaderProps) {
         }
     };
 
-    const handleSubmit = () => {
-        if (selectedFile) {
-            onUpload(selectedFile);
-        }
-    };
+
 
     return (
         <div className="w-full max-w-xl mx-auto">

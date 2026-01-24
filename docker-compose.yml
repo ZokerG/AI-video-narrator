@@ -1,45 +1,32 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: tts_postgres
-    environment:
-      POSTGRES_DB: video_narrator
-      POSTGRES_USER: tts_user
-      POSTGRES_PASSWORD: quinteropo
-      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+  backend:
+    build: .
+    container_name: tts_backend
     ports:
-      - "5432:5432"
+      - "8000:8000"
+    environment:
+      # Point to host machine's localhost for DB using host.docker.internal
+      # WARNING: Ensure your local Postgres accepts connections from Docker IP (pg_hba.conf)
+      - DATABASE_URL=postgresql+asyncpg://postgres:quinteropo@host.docker.internal:5432/quinesis
+      - PORT=8000
+    env_file:
+      - .env
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U tts_user -d video_narrator" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
-  minio:
-    image: minio/minio:latest
-    container_name: tts_minio
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Bake in the API URL (defaults to localhost for browser access)
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    container_name: tts_frontend
     ports:
-      - "9000:9000"  # API
-      - "9001:9001"  # Console UI
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin123
-    volumes:
-      - minio_data:/data
-    command: server /data --console-address ":9001"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
+      - "3000:3000"
+    depends_on:
+      - backend
     restart: unless-stopped
-
-volumes:
-  postgres_data:
-    driver: local
-  minio_data:
-    driver: local

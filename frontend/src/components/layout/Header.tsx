@@ -1,13 +1,17 @@
 "use client";
 
-import { Bell, CreditCard, LogOut, User } from "lucide-react";
+import { Bell, CreditCard, LogOut, User, Menu } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Image from "next/image";
 // import logo from "@/app/logo/logo.png"; // Importación directa si Next.js lo permite desde src/app o usar ruta pública
 
-export function Header() {
+interface HeaderProps {
+    onMenuClick?: () => void;
+}
+
+export function Header({ onMenuClick }: HeaderProps) {
     const { user, logout } = useAuth();
     const router = useRouter();
     const [showUserMenu, setShowUserMenu] = useState(false);
@@ -27,7 +31,15 @@ export function Header() {
 
     return (
         <header className="w-full border-b border-gray-100 bg-white/80 backdrop-blur-md flex-shrink-0 sticky top-0 z-40 transition-all duration-300">
-            <div className="flex h-18 items-center px-8">
+            <div className="flex h-18 items-center px-4 md:px-8 gap-4">
+                {/* Mobile Menu Button */}
+                <button
+                    onClick={onMenuClick}
+                    className="md:hidden p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                    <Menu className="h-6 w-6" />
+                </button>
+
                 {/* Logo & Branding */}
                 <div className="flex items-center gap-3 group cursor-pointer" onClick={() => router.push("/")}>
                     <div className="relative h-10 w-10 transition-transform duration-300 group-hover:scale-105">

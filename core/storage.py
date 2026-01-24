@@ -1,27 +1,27 @@
 """
 Storage management layer for videos and audio files
-Uses MinIO (S3-compatible) object storage
+Uses S3-compatible object storage (AWS S3 or MinIO)
 """
-from core.minio_storage import create_bucket_if_not_exists, upload_file, delete_file, get_presigned_url
+from core.minio_storage import create_bucket_if_not_exists, upload_file, delete_file
 from core.database import Video, AsyncSession, User
 from sqlalchemy import select
 from datetime import datetime
 from typing import List, Dict, Optional
 import os
 
-def save_video_to_storage(
+async def save_video_to_storage(
     user: User,
     video_path: str,
     session: AsyncSession,
     metadata: Dict
 ) -> Video:
     """
-    Save video to MinIO and create database record
+    Save video to S3/MinIO and create database record
     
     Args:
         user: User object
         video_path: Path to the video file
-        session: Database session (not async here, but passed as async)
+        session: Database session
         metadata: Additional metadata (voice_config, audio_config, etc.)
     
     Returns:
@@ -34,8 +34,14 @@ def save_video_to_storage(
     timestamp = int(datetime.utcnow().timestamp())
     object_name = f"users/{user.id}/videos/final_{timestamp}.mp4"
     
-    # Upload to MinIO
-    storage_data = upload_file(video_path, object_name)
+    # Upload to S3
+    try:
+        storage_data = upload_file(video_path, object_name)
+    except Exception as e:
+        print(f"❌ Error uploading to S3: {e}")
+        # Log error and potentially raise, but we might want to fail gracefully?
+        # For now, raise so the API returns error
+        raise e
     
     # Create video record in database
     video = Video(
@@ -53,20 +59,8 @@ def save_video_to_storage(
     
     session.add(video)
     
-    print(f"💾 Saved video to MinIO for user {user.email} at {object_name}")
+    print(f"💾 Saved video to S3 for user {user.email} at {object_name}")
     return video
-
-async def save_video_to_drive(
-    user: User,
-    video_path: str,
-    session: AsyncSession,
-    metadata: Dict
-) -> Video:
-    """
-    Async wrapper for save_video_to_storage
-    (Kept name for compatibility with existing code)
-    """
-    return save_video_to_storage(user, video_path, session, metadata)
 
 async def get_user_videos(user_id: int, session: AsyncSession) -> List[Video]:
     """Get all videos for a user"""
@@ -79,7 +73,7 @@ async def get_user_videos(user_id: int, session: AsyncSession) -> List[Video]:
 
 async def delete_video(video_id: int, user_id: int, session: AsyncSession) -> bool:
     """
-    Delete video from MinIO and database
+    Delete video from S3 and database
     
     Returns True if successful, False otherwise
     """
@@ -95,14 +89,14 @@ async def delete_video(video_id: int, user_id: int, session: AsyncSession) -> bo
     if not video:
         return False
     
-    # Delete from MinIO
+    # Delete from S3
     if video.storage_object_name:
         try:
             delete_file(video.storage_object_name)
         except Exception as e:
-            print(f"Error deleting from MinIO: {e}")
+            print(f"Error deleting from S3: {e}")
             # Continue anyway to remove from DB
-    
+            
     # Delete local file if exists
     if video.output_path and os.path.exists(video.output_path):
         try:
@@ -115,3 +109,15 @@ async def delete_video(video_id: int, user_id: int, session: AsyncSession) -> bo
     
     print(f"🗑️ Deleted video {video_id} for user {user_id}")
     return True
+
+async def save_video_to_drive(
+    user: User,
+    video_path: str,
+    session: AsyncSession,
+    metadata: Dict
+) -> Video:
+    """
+    Async wrapper for save_video_to_storage
+    (Kept name for backward compatibility if api.py still calls it)
+    """
+    return await save_video_to_storage(user, video_path, session, metadata)

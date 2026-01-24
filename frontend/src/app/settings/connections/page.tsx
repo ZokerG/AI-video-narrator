@@ -5,9 +5,10 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { SocialConnectionCard } from "@/components/social/ConnectionCard";
 import { useAuth } from "@/contexts/AuthContext";
 import axios from "axios";
+import { API_BASE_URL } from "@/lib/api";
 
 // Configurar URL base si no está globalmente
-const API_URL = "http://localhost:8000";
+const API_URL = API_BASE_URL;
 
 interface SocialAccount {
     id: number;

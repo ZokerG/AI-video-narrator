@@ -17,6 +17,7 @@ class VisualBeat(BaseModel):
 class Voiceover(BaseModel):
     script: Optional[str] = None
     subtitle: Optional[str] = None
+    pause_after_s: Optional[float] = 0.0  # Dramatic pause after this voiceover (seconds)
 
 class Beat(BaseModel):
     id: Optional[int] = None
@@ -33,6 +34,7 @@ class Overall(BaseModel):
     one_sentence_summary: Optional[str] = None
     tone: Optional[str] = None
     content_warnings: List[str] = Field(default_factory=list)
+    full_narrative_script: Optional[str] = None  # Complete narrative for entire video
 
 class VideoAnalysis(BaseModel):
     language: Optional[str] = "es"
