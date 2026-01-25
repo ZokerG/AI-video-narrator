@@ -1,8 +1,10 @@
-__pycache__
-venv
-.env
+# Root .dockerignore
 .git
-.gitignore
-outputs/*
-uploads/*
-frontend
+.agent
+node_modules
+venv
+__pycache__
+postgres_data
+frontend/node_modules
+backend/venv
+backend/__pycache__

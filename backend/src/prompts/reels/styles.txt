@@ -1,0 +1,14 @@
+[curious]
+Estilo 'Sabías que', datos curiosos, tono fascinante y educativo pero rápido.
+
+[horror]
+Estilo Creepypasta/Terror, tono de suspenso, final con giro inesperado.
+
+[motivational]
+Estilo estoico/gym, voz profunda, frases contundentes, filosofía de vida.
+
+[funny]
+Estilo stand-up, observaciones sarcásticas, situaciones relatables.
+
+[viral]
+Estilo viral extremo, máximo engagement, hooks potentes.

@@ -1,32 +1,53 @@
+version: '3.8'
+
 services:
+  # ✅ BACKEND (Python/FastAPI)
   backend:
-    build: .
-    container_name: tts_backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ai_narrator_backend
     ports:
       - "8000:8000"
-    environment:
-      # Point to host machine's localhost for DB using host.docker.internal
-      # WARNING: Ensure your local Postgres accepts connections from Docker IP (pg_hba.conf)
-      - DATABASE_URL=postgresql+asyncpg://postgres:quinteropo@host.docker.internal:5432/quinesis
-      - PORT=8000
-    env_file:
-      - .env
     volumes:
-      - ./uploads:/app/uploads
-      - ./outputs:/app/outputs
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    restart: unless-stopped
+      - ./backend:/app
+      - /app/__pycache__
+    env_file:
+      - ./backend/.env
+    restart: always
+    depends_on:
+      - db
 
+  # ✅ FRONTEND (Next.js)
   frontend:
     build:
       context: ./frontend
-      args:
-        # Bake in the API URL (defaults to localhost for browser access)
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-    container_name: tts_frontend
+      dockerfile: Dockerfile
+      target: dev
+    container_name: ai_narrator_frontend
     ports:
       - "3000:3000"
-    depends_on:
-      - backend
-    restart: unless-stopped
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - WATCHPACK_POLLING=true # Fix for hot reload in some environments
+    restart: always
+
+  # ✅ DATABASE (PostgreSQL) (Optional but recommended)
+  db:
+    image: postgres:15-alpine
+    container_name: ai_narrator_db
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: adminpassword
+      POSTGRES_DB: ai_video_narrator
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+volumes:
+  postgres_data:

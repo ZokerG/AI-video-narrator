@@ -229,7 +229,7 @@ export default function NewReelPage() {
 
                                 <div className="max-w-xs mx-auto bg-black rounded-xl overflow-hidden shadow-2xl aspect-[9/16]">
                                     <video
-                                        src={result.video_url}
+                                        src={result.storage_url}
                                         controls
                                         className="w-full h-full object-cover"
                                     />
@@ -237,7 +237,7 @@ export default function NewReelPage() {
 
                                 <div className="flex justify-center gap-4 pt-4">
                                     <a
-                                        href={result.video_url}
+                                        href={result.storage_url}
                                         download
                                         className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-colors"
                                     >

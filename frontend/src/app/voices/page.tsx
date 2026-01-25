@@ -77,7 +77,7 @@ export default function VoicesPage() {
         // Language filter
         if (selectedLanguage !== "all") {
             filtered = filtered.filter((voice) =>
-                voice.labels.accent?.toLowerCase().includes(selectedLanguage.toLowerCase())
+                voice.labels?.accent?.toLowerCase().includes(selectedLanguage.toLowerCase())
             );
         }
 
@@ -103,7 +103,10 @@ export default function VoicesPage() {
             );
 
             if (response.data.audio_url) {
-                const audio = new Audio(response.data.audio_url);
+                // ✅ Use full backend URL for audio file
+                const backendUrl = API_BASE_URL.replace('/api', '');  // Remove /api suffix
+                const fullAudioUrl = `${backendUrl}${response.data.audio_url}`;
+                const audio = new Audio(fullAudioUrl);
                 audio.play();
                 setPlayingVoice(voiceId);
 
@@ -124,7 +127,7 @@ export default function VoicesPage() {
             return [];
         }
         voices.forEach((voice) => {
-            if (voice.labels.accent) {
+            if (voice.labels?.accent) {  // ✅ Optional chaining to prevent undefined error
                 languages.add(voice.labels.accent);
             }
         });
@@ -199,9 +202,9 @@ export default function VoicesPage() {
                     {/* Voices Grid */}
                     {!loading && !error && (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                            {filteredVoices?.map((voice) => (
+                            {filteredVoices?.map((voice, index) => (
                                 <div
-                                    key={voice.id}
+                                    key={voice.id || `voice-${index}`}
                                     className="bg-white rounded-2xl border-2 border-gray-200 p-6 hover:border-primary-300 hover:shadow-lg transition-all"
                                 >
                                     {/* Voice Icon */}
@@ -216,17 +219,17 @@ export default function VoicesPage() {
 
                                     {/* Labels */}
                                     <div className="flex flex-wrap gap-2 justify-center mb-4">
-                                        {voice.labels.gender && (
+                                        {voice.labels?.gender && (
                                             <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded-lg">
                                                 {voice.labels.gender}
                                             </span>
                                         )}
-                                        {voice.labels.accent && (
+                                        {voice.labels?.accent && (
                                             <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded-lg">
                                                 {voice.labels.accent}
                                             </span>
                                         )}
-                                        {voice.labels.age && (
+                                        {voice.labels?.age && (
                                             <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-lg">
                                                 {voice.labels.age}
                                             </span>

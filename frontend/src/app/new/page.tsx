@@ -98,7 +98,7 @@ export default function NewVideoPage() {
 
             // Call backend API
             const response = await axios.post<ProcessingResult>(
-                `${API_BASE_URL}/analyze`,
+                `${API_BASE_URL}/analyze-v2`,  // ✅ Using new Clean Architecture endpoint
                 formData,
                 {
                     headers: {

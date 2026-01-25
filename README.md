@@ -1,116 +1,131 @@
-# QUINESIS AI - Video Narrator 🎬🧠
+# 🎬 AI Video Narrator (Quinesis)
 
-> **Transforma videos en historias virales impulsadas por IA.**
-
-Quinesis es una plataforma de última generación que automatiza la creación de contenido narrativo. Utilizando modelos multimodales avanzados (Gemini 2.0 Flash) y síntesis de voz hiperrealista (ElevenLabs), Quinesis analiza tus videos, entiende el contexto visual y genera narraciones cautivadoras perfectamente sincronizadas.
-
-![Quinesis Banner](frontend/src/app/logo/logo.png) (Logo Placeholder)
+**Plataforma de generación y análisis de video impulsada por IA.**  
+Transforma videos en bruto en contenido viral narrado, analiza estructuras visuales y genera guiones optimizados para redes sociales (Reels, TikTok, Shorts).
 
 ---
 
 ## 🚀 Características Principales
 
-*   **👁️ Análisis Visual Profundo con IA**: Nuestra IA "mira" tu video cuadro a cuadro, entendiendo acciones, emociones y contextos para generar guiones coherentes.
-*   **✍️ Generación de Guiones Creativos**: No más bloqueo del escritor. Obtén guiones optimizados para diferentes estilos:
-    *   *Viral/TikTok*: Dinámico, rápido y enganchador.
-    *   *Documental*: Informativo, serio y elegante.
-    *   *Comedia*: Divertido, sarcástico y entretenido.
-*   **🗣️ Voces Ultra-Realistas**: Integración nativa con ElevenLabs para voces que suenan humanas, con entonación y emoción real.
-*   **🔌 Integración Social (Multi-Plataforma)**: Conecta tus cuentas y publica directamente:
-    *   Facebook Pages
-    *   Instagram Reels
-    *   TikTok
-*   **⚡ Arquitectura Moderna y Escalable**: Construido sobre microservicios containerizados listos para escalar.
+### 🧠 Análisis de Video con IA
+- **Visión Artificial (Gemini 2.0)**: Entiende lo que sucede en el video segundo a segundo.
+- **Detección de "Beats"**: Identifica los momentos visuales clave para sincronizar la narración.
+- **Generación de Guiones**: Crea narrativas coherentes en diferentes estilos (Viral, Horror, Curioso, Motivacional).
 
-## 🛠️ Stack Tecnológico
+### 🗣️ Narración y Audio Pro
+- **Text-to-Speech (ElevenLabs)**: Voces ultra-realistas clonadas o predefinidas.
+- **Sincronización Automática**: Ajusta la velocidad del habla para encajar perfectamente con los segmentos de video.
+- **Mezcla de Audio**: Combina voz, música de fondo (con ducking automático) y audio original.
 
-La arquitectura de Quinesis está diseñada para rendimiento y mantenibilidad.
+### 📱 Viral Shorts Generator
+- **Modo "Reel Instantáneo"**: Sube un video y obtén un Reel listo para publicar en minutos.
+- **Hooks Virales**: Estructuras de guion diseñadas para retención (Hook 0-3s, Desarrollo, CTA).
 
-### **Backend (Python & FastAPI)**
-*   **Framework**: FastAPI (Alto rendimiento, asíncrono).
-*   **IA Core**: Google Gemini 2.0 Flash (Visión + Texto).
-*   **TTS Engine**: ElevenLabs API.
-*   **Base de Datos**: PostgreSQL (Persistencia de usuarios y videos) + SQLAlchemy (ORM Async).
-*   **Almacenamiento**: MinIO (Compatible con S3) para gestión de archivos de video y audio.
-*   **Autenticación**: JWT + OAuth 2.0 (Redes Sociales).
-
-### **Frontend (Next.js & TypeScript)**
-*   **Framework**: Next.js 16 (React Server Components).
-*   **Estilos**: TailwindCSS + Framer Motion.
-*   **UI Components**: Diseño minimalista "Premium", iconos Lucide-React.
-*   **Gestión de Estado**: Context API para Auth y UX fluida.
-
-### **Infraestructura**
-*   **Contenedores**: Docker & Docker Compose.
-*   **Servicios Externos**: Google Cloud (Vertex AI/Studio), Meta Graph API, TikTok Developers.
+### 🔐 Seguridad y Usuarios
+- **OAuth 2.0**: Login con Google, Facebook, Instagram, TikTok.
+- **Sistema de Créditos**: Gestión de cuotas por usuario.
+- **Almacenamiento Seguro**: Integración con S3/MinIO para assets y resultados.
 
 ---
 
-## 🏁 Instalación y Despliegue Local
+## 🏗️ Arquitectura del Proyecto
 
-### Prerrequisitos
-*   Docker & Docker Compose
-*   Node.js 18+
-*   Python 3.10+
-*   Claves de API: Google Gemini, ElevenLabs.
+El proyecto sigue una estructura **Monorepo** con **Clean Architecture** en el backend.
 
-### 1. Configuración del Entorno
-Clona el repositorio y configura las variables de entorno.
-
-```bash
-git clone https://github.com/tu-usuario/quinesis.git
-cd quinesis
-cp .env.example .env
+```
+/
+├── docker-compose.yml       # Orquestación de servicios
+├── backend/                 # API REST (Python/FastAPI)
+│   ├── src/
+│   │   ├── domain/          # Entidades y reglas de negocio (Puro)
+│   │   ├── application/     # Casos de uso (Lógica de la aplicación)
+│   │   ├── infrastructure/  # Adaptadores (DB, MinIO, Gemini, ElevenLabs)
+│   │   └── presentation/    # API Endpoints
+│   └── Dockerfile
+├── frontend/                # Interfaz de Usuario (Next.js 14)
+│   ├── src/                 # App Router, Componentes, Hooks
+│   └── Dockerfile
+└── postgres_data/           # Persistencia de BD (Docker volume)
 ```
 
-Edita `.env` con tus claves (Ver `SETUP_SOCIAL_APPS.md` para configurar redes sociales).
+### Stack Tecnológico
+- **Backend**: Python 3.11, FastAPI, SQLModel/SQLAlchemy, MoviePy.
+- **Frontend**: Next.js 14, React, TailwindCSS, TypeScript.
+- **IA**: Google Gemini 1.5/2.0 Pro.
+- **Infraestructura**: Docker, PostgreSQL, MinIO (S3 Compatible).
 
-### 2. Levantar Servicios Base (DB & MinIO)
-```bash
-docker-compose up -d
-```
+---
 
-### 3. Iniciar Backend
+## 🛠️ Instalación y Uso
+
+### Opción A: Docker (Recomendada)
+Levanta todo el sistema con un solo comando.
+
+1. **Configura las variables de entorno**:
+   Crea un archivo `backend/.env` (basado en `.env.example` si existiera) con tus keys de Gemini, ElevenLabs, DB, etc.
+
+2. **Ejecuta Docker Compose**:
+   ```bash
+   docker-compose up --build
+   ```
+
+3. **Accede a la aplicación**:
+   - **Frontend**: http://localhost:3000
+   - **Backend API Docs**: http://localhost:8000/docs
+   - **Base de Datos**: Puerto 5432
+
+### Opción B: Ejecución Local (Desarrollo)
+
+#### 1. Backend
 ```bash
-# Crear entorno virtual
+cd backend
 python -m venv venv
-source venv/bin/activate  # o venv\Scripts\activate en Windows
+# Windows
+.\venv\Scripts\activate
+# Linux/Mac
+source venv/bin/activate
 
-# Instalar dependencias
 pip install -r requirements.txt
-
-# Iniciar servidor
-python api.py
+uvicorn src.presentation.main:app --reload
 ```
 
-### 4. Iniciar Frontend
+#### 2. Frontend
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-Visita `http://localhost:3000` y ¡listo!
+---
+
+## 🔑 Variables de Entorno Clave
+
+Asegúrate de configurar estas variables en `backend/.env`:
+
+```env
+# Base de Datos
+DATABASE_URL=postgresql+asyncpg://user:pass@localhost/dbname
+
+# IA & Servicios
+GOOGLE_API_KEY=tu_api_key_gemini
+ELEVENLABS_API_KEY=tu_api_key_elevenlabs
+
+# Seguridad
+JWT_SECRET_KEY=tu_secreto_super_seguro
+JWT_ALGORITHM=HS256
+
+# Almacenamiento
+MINIO_ENDPOINT=play.min.io
+MINIO_ACCESS_KEY=tu_access_key
+MINIO_SECRET_KEY=tu_secret_key
+BUCKET_NAME=quinesis-videos
+```
 
 ---
 
-## 🔮 Roadmap: Hacia Dónde Vamos
-
-Quinesis está en constante evolución. Aquí está nuestra visión para el futuro:
-
-*   [ ] **Editor de Guiones en Tiempo Real**: Permitir al usuario ajustar el guion generado antes de sintetizar el audio.
-*   [ ] **Doblaje Automático (AI Dubbing)**: Traducir y doblar videos manteniendo la voz original del usuario.
-*   [ ] **Subtítulos Animados**: Generación automática de subtítulos estilo "Karaoke" quemados en el video.
-*   [ ] **Música de Fondo Inteligente**: Selección automática de banda sonora libre de derechos basada en el "mood" del video.
-*   [ ] **SaaS Multi-Tenant**: Paneles de administración para equipos y agencias.
-
----
-
-## 🤝 Contribución
-
-¡Las contribuciones son bienvenidas! Por favor, abre un issue para discutir cambios mayores antes de enviar un Pull Request.
-
----
-
-**Quinesis AI** - *Donde la visión se encuentra con la voz.*
-© 2026 Tu Nombre / Tu Organización.
+## 🤝 Contribuir
+1. Haz fork del repositorio.
+2. Crea una rama para tu feature (`git checkout -b feature/amazing-feature`).
+3. Commit de tus cambios (`git commit -m 'Add amazing feature'`).
+4. Push a la rama (`git push origin feature/amazing-feature`).
+5. Abre un Pull Request.

@@ -1,0 +1,36 @@
+<task>
+Crea un guion TOTALMENTE COMPLETO para un Reel/Short sobre el tema: "{topic}".
+El video debe durar máximo {duration} segundos.
+Estilo: {style_description}
+</task>
+
+<structure_rules>
+1. **HOOK (0-3s)**: La primera frase debe ser imposible de ignorar.
+2. **BODY**: Desarrollo rápido. Frases cortas. Sin relleno.
+3. **CTA (Final)**: Llamado a la acción natural.
+4. **VISUALES**: Para cada frase, describe qué buscar en un banco de imágenes.
+   - Usa términos en INGLÉS para la búsqueda visual (visual_query).
+   - Incluye "vertical" en las queries.
+</structure_rules>
+
+<output_schema>
+Devuelve ÚNICAMENTE JSON válido con esta estructura exacta:
+{{
+  "title": "Título del video",
+  "scenes": [
+    {{
+      "id": 1,
+      "narration": "Texto que dirá la voz",
+      "visual_query": "search terms in english vertical",
+      "duration_estimate": 3.5
+    }}
+  ]
+}}
+</output_schema>
+
+<critical>
+- Genera entre 8-12 escenas.
+- El total de duration_estimate debe sumar ~55 segundos.
+- NO uses caracteres especiales que rompan JSON (evita comillas dobles dentro de strings).
+- Detecta el idioma del topic y usa el mismo para narration.
+</critical>
